@@ -57,7 +57,7 @@ namespace ImGuiFullscreen
 	static void DrawToast();
 	static void GetMenuButtonFrameBounds(float height, ImVec2* pos, ImVec2* size);
 	static bool MenuButtonFrame(const char* str_id, bool enabled, float height, bool* visible, bool* hovered, ImRect* bb,
-		ImGuiButtonFlags flags = 0, float hover_alpha = 1.0f);
+		ImGuiButtonFlags flags = 0, float hover_alpha = 1.0f, bool centered = false, float text_size = 0.0f);
 	static void PopulateFileSelectorItems();
 	static void SetFileSelectorDirectory(std::string dir);
 	static ImGuiID GetBackgroundProgressID(const char* str_id);
@@ -674,7 +674,7 @@ void ImGuiFullscreen::EndFullscreenWindow()
 	ImGui::PopStyleColor();
 }
 
-void ImGuiFullscreen::BeginMenuButtons(u32 num_items, float y_align, float x_padding, float y_padding, float item_height)
+void ImGuiFullscreen::BeginMenuButtons(u32 num_items, float y_align, float x_padding, float y_padding, float item_height, bool y_centered, float pauseLogo_height)
 {
 	s_menu_button_index = 0;
 
@@ -686,10 +686,18 @@ void ImGuiFullscreen::BeginMenuButtons(u32 num_items, float y_align, float x_pad
 	if (y_align != 0.0f)
 	{
 		const float total_size =
-			static_cast<float>(num_items) * LayoutScale(item_height + (y_padding * 2.0f)) + LayoutScale(y_padding * 2.0f);
+			static_cast<float>(num_items) * LayoutScale(item_height + (y_padding * 2.0f)) + LayoutScale(y_padding * 2.0f) + LayoutScale(pauseLogo_height);
 		const float window_height = ImGui::GetWindowHeight();
-		if (window_height > total_size)
-			ImGui::SetCursorPosY((window_height - total_size) * y_align);
+		if (window_height + LayoutScale(pauseLogo_height) > total_size)
+			if (y_centered)
+			{
+				ImGui::SetCursorPosY((window_height / 2 - total_size / 2) * y_align + LayoutScale(pauseLogo_height) / 2);
+			}
+			else
+			{
+				ImGui::SetCursorPosY((window_height - total_size) * y_align + LayoutScale(pauseLogo_height) / 2);
+			}
+			
 	}
 }
 
@@ -729,7 +737,7 @@ void ImGuiFullscreen::GetMenuButtonFrameBounds(float height, ImVec2* pos, ImVec2
 }
 
 bool ImGuiFullscreen::MenuButtonFrame(
-	const char* str_id, bool enabled, float height, bool* visible, bool* hovered, ImRect* bb, ImGuiButtonFlags flags, float hover_alpha)
+	const char* str_id, bool enabled, float height, bool* visible, bool* hovered, ImRect* bb, ImGuiButtonFlags flags, float hover_alpha, bool centered, float text_size)
 {
 	ImGuiWindow* window = ImGui::GetCurrentWindow();
 	if (window->SkipItems)
@@ -741,6 +749,7 @@ bool ImGuiFullscreen::MenuButtonFrame(
 
 	ImVec2 pos, size;
 	GetMenuButtonFrameBounds(height, &pos, &size);
+	if (centered) size.x = text_size;
 	*bb = ImRect(pos, pos + size);
 
 	const ImGuiID id = window->GetID(str_id);
@@ -778,7 +787,7 @@ bool ImGuiFullscreen::MenuButtonFrame(
 			const float t = std::min<float>(std::abs(std::sin(ImGui::GetTime() * 0.75) * 1.1), 1.0f);
 			ImGui::PushStyleColor(ImGuiCol_Border, ImGui::GetColorU32(ImGuiCol_Border, t));
 
-			ImGui::RenderFrame(bb->Min, bb->Max, col, true, 0.0f);
+			ImGui::RenderFrame(bb->Min, bb->Max, col, true, LayoutScale(40.0f));
 
 			ImGui::PopStyleColor();
 		}
@@ -797,10 +806,10 @@ bool ImGuiFullscreen::MenuButtonFrame(
 }
 
 bool ImGuiFullscreen::MenuButtonFrame(const char* str_id, bool enabled, float height, bool* visible, bool* hovered, ImVec2* min,
-	ImVec2* max, ImGuiButtonFlags flags /*= 0*/, float hover_alpha /*= 0*/)
+	ImVec2* max, ImGuiButtonFlags flags /*= 0*/, float hover_alpha /*= 0*/, bool centered, float text_size)
 {
 	ImRect bb;
-	const bool result = MenuButtonFrame(str_id, enabled, height, visible, hovered, &bb, flags, hover_alpha);
+	const bool result = MenuButtonFrame(str_id, enabled, height, visible, hovered, &bb, flags, hover_alpha, centered, text_size);
 	*min = bb.Min;
 	*max = bb.Max;
 	return result;
@@ -871,16 +880,24 @@ bool ImGuiFullscreen::MenuHeadingButton(
 
 bool ImGuiFullscreen::ActiveButton(const char* title, bool is_active, bool enabled, float height, ImFont* font)
 {
+	ImGuiWindow* window = ImGui::GetCurrentWindow();
+	float winSize = window->WorkRect.GetWidth();
+	const ImVec2 title_size(
+		font->CalcTextSizeA(font->FontSize, std::numeric_limits<float>::max(), -1.0f, title));
+	//centered
+	ImGui::SetCursorPosX(winSize / 2 - title_size.x / 2 - LayoutScale(LAYOUT_MENU_BUTTON_X_PADDING));
+
 	if (is_active)
 	{
 		ImVec2 pos, size;
 		GetMenuButtonFrameBounds(height, &pos, &size);
-		ImGui::RenderFrame(pos, pos + size, ImGui::GetColorU32(UIPrimaryColor), false);
+		size.x = title_size.x;
+		ImGui::RenderFrame(pos, pos + size, ImGui::GetColorU32(UIPrimaryColor), false, LayoutScale(40.0f));
 	}
 
 	ImRect bb;
 	bool visible, hovered;
-	bool pressed = MenuButtonFrame(title, enabled, height, &visible, &hovered, &bb);
+	bool pressed = MenuButtonFrame(title, enabled, height, &visible, &hovered, &bb, 0, 1.0f, true, LayoutScale(2 * LAYOUT_MENU_BUTTON_X_PADDING) + title_size.x);
 	if (!visible)
 		return false;
 

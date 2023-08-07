@@ -386,7 +386,7 @@ bool ImGuiManager::LoadFontData()
 	if (s_standard_font_data.empty())
 	{
 		std::optional<std::vector<u8>> font_data = s_font_path.empty() ?
-													   Host::ReadResourceFile("fonts/Roboto-Regular.ttf") :
+													   Host::ReadResourceFile("fonts/ptr2font.ttf") :
 													   FileSystem::ReadBinaryFile(s_font_path.c_str());
 		if (!font_data.has_value())
 			return false;

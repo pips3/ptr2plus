@@ -252,6 +252,8 @@ namespace FullscreenUI
 	static std::shared_ptr<GSTexture> s_fallback_exe_texture;
 	static std::vector<std::unique_ptr<GSTexture>> s_cleanup_textures;
 
+	static std::shared_ptr<GSTexture> s_paused_texture;
+
 	//////////////////////////////////////////////////////////////////////////
 	// Landing
 	//////////////////////////////////////////////////////////////////////////
@@ -887,6 +889,8 @@ bool FullscreenUI::LoadResources()
 	s_fallback_disc_texture = LoadTexture("fullscreenui/media-cdrom.png");
 	s_fallback_exe_texture = LoadTexture("fullscreenui/applications-system.png");
 
+	s_paused_texture = LoadTexture("fullscreenui/ptr2plus/pause.png");
+
 	for (u32 i = static_cast<u32>(GameDatabaseSchema::Compatibility::Nothing);
 		 i <= static_cast<u32>(GameDatabaseSchema::Compatibility::Perfect); i++)
 	{
@@ -901,6 +905,9 @@ void FullscreenUI::DestroyResources()
 	s_app_icon_texture.reset();
 	s_fallback_exe_texture.reset();
 	s_fallback_disc_texture.reset();
+
+	s_paused_texture.reset();
+
 	for (auto& tex : s_game_compatibility_textures)
 		tex.reset();
 	for (auto& tex : s_cleanup_textures)
@@ -4484,6 +4491,7 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 			ImRect(image_min, image_max), ImVec2(static_cast<float>(cover->GetWidth()), static_cast<float>(cover->GetHeight()))));
 		dl->AddImage(cover->GetNativeHandle(), image_rect.Min, image_rect.Max);
 	}
+	
 
 	// current time / play time
 	{
@@ -4522,8 +4530,13 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 		}
 	}
 
-	const ImVec2 window_size(LayoutScale(500.0f, LAYOUT_SCREEN_HEIGHT));
+	//const ImVec2 window_size(LayoutScale(500.0f, LAYOUT_SCREEN_HEIGHT));
+	//const ImVec2 window_size(LayoutScale(LAYOUT_SCREEN_WIDTH, LAYOUT_SCREEN_HEIGHT));
+	const ImVec2 window_size(display_size.x, display_size.y);
+
 	const ImVec2 window_pos(0.0f, display_size.y - window_size.y);
+
+	
 
 	if (BeginFullscreenWindow(
 			window_pos, window_size, "pause_menu", ImVec4(0.0f, 0.0f, 0.0f, 0.0f), 0.0f, 10.0f, ImGuiWindowFlags_NoBackground))
@@ -4536,17 +4549,46 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 #endif
 		};
 
-		const bool just_focused = ResetFocusHere();
-		BeginMenuButtons(submenu_item_count[static_cast<u32>(s_current_pause_submenu)], 1.0f, ImGuiFullscreen::LAYOUT_MENU_BUTTON_X_PADDING,
-			ImGuiFullscreen::LAYOUT_MENU_BUTTON_Y_PADDING, ImGuiFullscreen::LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY);
 
+		//hacky and possibly unecessary pre calculation oF pause logo
+		GSTexture* const pausedLogo = s_paused_texture.get();
+		const float image_width = static_cast<float>(pausedLogo->GetWidth()) * 0.8f;
+		const float image_height = static_cast<float>(pausedLogo->GetHeight()) * 0.8f;
+		const ImVec2 image_min_pre(
+			display_size.x / 2 - LayoutScale(image_width) / 2, display_size.y / 2 - LayoutScale(image_height) / 2);
+		const ImVec2 image_max_pre(image_min_pre.x + LayoutScale(image_width), image_min_pre.y + LayoutScale(image_height));
+		const ImRect image_rect_pre(CenterImage(
+			ImRect(image_min_pre, image_max_pre), ImVec2(static_cast<float>(pausedLogo->GetWidth()), static_cast<float>(pausedLogo->GetHeight()))));
+
+
+		const bool just_focused = ResetFocusHere();
+
+		//prepares cursor y pos for menu buttons, accounting for pause logo on top
+		BeginMenuButtons(submenu_item_count[static_cast<u32>(s_current_pause_submenu)], 1.0f, ImGuiFullscreen::LAYOUT_MENU_BUTTON_X_PADDING,
+			ImGuiFullscreen::LAYOUT_MENU_BUTTON_Y_PADDING, ImGuiFullscreen::LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY, true, image_rect_pre.GetHeight());
+
+		
+		//draw pause logo
+		const ImVec2 image_min(
+			display_size.x / 2 - LayoutScale(image_width) / 2, ImGui::GetCursorPosY());
+		const ImVec2 image_max(image_min.x + LayoutScale(image_width), image_min.y + LayoutScale(image_height));
+		const ImRect image_rect(CenterImage(
+			ImRect(image_min, image_max), ImVec2(static_cast<float>(pausedLogo->GetWidth()), static_cast<float>(pausedLogo->GetHeight()))));
+		dl->AddImage(pausedLogo->GetNativeHandle(), image_rect.Min, image_rect.Max);
+
+		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + image_rect.GetHeight());
+
+
+		//float buttonPos = display_size.x / 2 - ;
+		//ImGui::SetCursorPosX(buttonPos);
+		//float cursor = ImGui::GetCursorPosX();
 		switch (s_current_pause_submenu)
 		{
 			case PauseSubMenu::None:
 			{
 				// NOTE: Menu close must come first, because otherwise VM destruction options will race.
 				const bool can_load_or_save_state = s_current_disc_crc != 0;
-
+				
 				if (ActiveButton(ICON_FA_PLAY " Resume Game", false) || WantsToCloseMenu())
 					ClosePauseMenu();
 
@@ -4561,7 +4603,7 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 					if (OpenSaveStateSelector(true))
 						s_current_main_window = MainWindowType::None;
 				}
-
+			
 				if (ActiveButton(ICON_FA_DOWNLOAD " Save State", false, can_load_or_save_state))
 				{
 					if (OpenSaveStateSelector(false))
@@ -4588,7 +4630,6 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 #else
 				ActiveButton(ICON_FA_TROPHY " Achievements", false, false);
 #endif
-
 				if (ActiveButton(ICON_FA_CAMERA " Save Screenshot", false))
 				{
 					GSQueueSnapshot(std::string());

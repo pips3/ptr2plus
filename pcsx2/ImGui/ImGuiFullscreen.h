@@ -152,10 +152,10 @@ namespace ImGuiFullscreen
 	void EndFullscreenWindow();
 
 	void BeginMenuButtons(u32 num_items = 0, float y_align = 0.0f, float x_padding = LAYOUT_MENU_BUTTON_X_PADDING,
-		float y_padding = LAYOUT_MENU_BUTTON_Y_PADDING, float item_height = LAYOUT_MENU_BUTTON_HEIGHT);
+						  float y_padding = LAYOUT_MENU_BUTTON_Y_PADDING, float item_height = LAYOUT_MENU_BUTTON_HEIGHT, bool y_centered = false, float pauseLogo_height = 0.0f);
 	void EndMenuButtons();
 	bool MenuButtonFrame(const char* str_id, bool enabled, float height, bool* visible, bool* hovered, ImVec2* min, ImVec2* max,
-		ImGuiButtonFlags flags = 0, float hover_alpha = 1.0f);
+		ImGuiButtonFlags flags = 0, float hover_alpha = 1.0f, bool centered = false, float text_size = 0.0f);
 	void MenuHeading(const char* title, bool draw_line = true);
 	bool MenuHeadingButton(const char* title, const char* value = nullptr, bool enabled = true, bool draw_line = true);
 	bool ActiveButton(const char* title, bool is_active, bool enabled = true, float height = LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY,

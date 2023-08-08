@@ -885,7 +885,7 @@ bool ImGuiFullscreen::ActiveButton(const char* title, bool is_active, bool enabl
 	const ImVec2 title_size(
 		font->CalcTextSizeA(font->FontSize, std::numeric_limits<float>::max(), -1.0f, title));
 	//centered
-	ImGui::SetCursorPosX(winSize / 2 - title_size.x / 2 - LayoutScale(LAYOUT_MENU_BUTTON_X_PADDING));
+	ImGui::SetCursorPosX(winSize / 2 - title_size.x / 2 - LayoutScale(LAYOUT_MENU_BUTTON_X_PADDING) / 2);
 
 	if (is_active)
 	{
@@ -907,7 +907,41 @@ bool ImGuiFullscreen::ActiveButton(const char* title, bool is_active, bool enabl
 		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
 
 	ImGui::PushFont(font);
+
+	if (hovered && enabled)
+	{
+		float outline_size = 3.0f;
+		for (float i = 0.5f; i < outline_size; i+= 0.5f)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Text, HEX_TO_IMVEC4(0xF19311, 0xFF));
+			//bottom right
+			ImGui::RenderTextClipped(title_bb.Min + ImVec2(LayoutScale(i), LayoutScale(i)), title_bb.Max + ImVec2(LayoutScale(i), LayoutScale(i)), title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
+			//bottom left
+			ImGui::RenderTextClipped(title_bb.Min + ImVec2(LayoutScale(-i), LayoutScale(i)), title_bb.Max + ImVec2(LayoutScale(-i), LayoutScale(i)), title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
+			//right
+			ImGui::RenderTextClipped(title_bb.Min + ImVec2(LayoutScale(i), LayoutScale(0)), title_bb.Max + ImVec2(LayoutScale(i), LayoutScale(0)), title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
+			//bottom
+			ImGui::RenderTextClipped(title_bb.Min + ImVec2(LayoutScale(0), LayoutScale(i)), title_bb.Max + ImVec2(LayoutScale(0), LayoutScale(i)), title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
+			ImGui::PopStyleColor();
+
+			ImGui::PushStyleColor(ImGuiCol_Text, HEX_TO_IMVEC4(0xC74201, 0xFF));
+			//top left
+			ImGui::RenderTextClipped(title_bb.Min - ImVec2(LayoutScale(i), LayoutScale(i)), title_bb.Max - ImVec2(LayoutScale(i), LayoutScale(i)), title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
+			//top right
+			ImGui::RenderTextClipped(title_bb.Min - ImVec2(LayoutScale(-i), LayoutScale(i)), title_bb.Max - ImVec2(LayoutScale(-i), LayoutScale(i)), title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
+			//left
+			ImGui::RenderTextClipped(title_bb.Min - ImVec2(LayoutScale(-i), LayoutScale(0)), title_bb.Max - ImVec2(LayoutScale(-i), LayoutScale(0)), title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
+			//top
+			ImGui::RenderTextClipped(title_bb.Min - ImVec2(LayoutScale(-0), LayoutScale(i)), title_bb.Max - ImVec2(LayoutScale(-0), LayoutScale(i)), title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
+
+			ImGui::PopStyleColor();
+		}
+
+		
+	}
+
 	ImGui::RenderTextClipped(title_bb.Min, title_bb.Max, title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
+	
 	ImGui::PopFont();
 
 	if (!enabled)
@@ -2485,10 +2519,15 @@ void ImGuiFullscreen::SetTheme(bool light)
 	{
 		// dark
 		UIBackgroundColor = HEX_TO_IMVEC4(0x212121, 0xff);
+		//UIBackgroundColor = HEX_TO_IMVEC4(0xFFA160, 0xff); //button click
 		UIBackgroundTextColor = HEX_TO_IMVEC4(0xffffff, 0xff);
 		UIBackgroundLineColor = HEX_TO_IMVEC4(0xf0f0f0, 0xff);
-		UIBackgroundHighlightColor = HEX_TO_IMVEC4(0x4b4b4b, 0xff);
-		UIPrimaryColor = HEX_TO_IMVEC4(0x2e2e2e, 0xff);
+		//UIBackgroundHighlightColor = HEX_TO_IMVEC4(0x4b4b4b, 0xff);
+		UIBackgroundHighlightColor = HEX_TO_IMVEC4(0xDA5F0B, 0xff); //button hover
+		
+		//UIPrimaryColor = HEX_TO_IMVEC4(0x2e2e2e, 0xff);
+		UIPrimaryColor = HEX_TO_IMVEC4(0xDA5F0B, 0xff); //scrollbar, top of settings and file dialogue, popups
+		//DA5F0B
 		UIPrimaryLightColor = HEX_TO_IMVEC4(0x484848, 0xff);
 		UIPrimaryDarkColor = HEX_TO_IMVEC4(0x000000, 0xff);
 		UIPrimaryTextColor = HEX_TO_IMVEC4(0xffffff, 0xff);

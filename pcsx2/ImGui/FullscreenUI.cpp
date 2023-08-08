@@ -4578,7 +4578,7 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 
 		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + image_rect.GetHeight());
 
-
+		bool expertMode = false;
 		//float buttonPos = display_size.x / 2 - ;
 		//ImGui::SetCursorPosX(buttonPos);
 		//float cursor = ImGui::GetCursorPosX();
@@ -4591,13 +4591,14 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 				
 				if (ActiveButton(ICON_FA_PLAY " Resume Game", false) || WantsToCloseMenu())
 					ClosePauseMenu();
-
-				if (ActiveButton(ICON_FA_FAST_FORWARD " Toggle Frame Limit", false))
+				if (expertMode)
 				{
-					ClosePauseMenu();
-					DoToggleFrameLimit();
+					if (ActiveButton(ICON_FA_FAST_FORWARD " Toggle Frame Limit", false))
+					{
+						ClosePauseMenu();
+						DoToggleFrameLimit();
+					}
 				}
-
 				if (ActiveButton(ICON_FA_UNDO " Load State", false, can_load_or_save_state))
 				{
 					if (OpenSaveStateSelector(true))
@@ -4609,12 +4610,14 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 					if (OpenSaveStateSelector(false))
 						s_current_main_window = MainWindowType::None;
 				}
-
-				if (ActiveButton(ICON_FA_WRENCH " Game Properties", false, can_load_or_save_state))
+				if (expertMode)
 				{
-					SwitchToGameSettings();
+					if (ActiveButton(ICON_FA_WRENCH " Game Properties", false, can_load_or_save_state))
+					{
+						SwitchToGameSettings();
+					}
 				}
-
+				
 #ifdef ENABLE_ACHIEVEMENTS
 				if (ActiveButton(ICON_FA_TROPHY " Achievements", false,
 						Achievements::HasActiveGame() && Achievements::SafeHasAchievementsOrLeaderboards()))
@@ -4644,13 +4647,14 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 					DoToggleSoftwareRenderer();
 				}
 
+				/*
 				if (ActiveButton(ICON_FA_COMPACT_DISC " Change Disc", false))
 				{
 					s_current_main_window = MainWindowType::None;
 					DoChangeDisc();
 				}
-
-				if (ActiveButton(ICON_FA_SLIDERS_H " Settings", false))
+				*/
+				if (ActiveButton(ICON_FA_SLIDERS_H " PCSX2 Settings", false))
 					SwitchToSettings();
 
 				if (ActiveButton(ICON_FA_POWER_OFF " Close Game", false))

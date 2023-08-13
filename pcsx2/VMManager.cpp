@@ -531,13 +531,20 @@ void VMManager::ApplySettings()
 		MTGS::WaitGS(false);
 	}
 
-	// Reset to a clean Pcsx2Config. Otherwise things which are optional (e.g. gamefixes)
+	// Reset to a clean Pcsx2Config. Oth erwise things which are optional (e.g. gamefixes)
 	// do not use the correct default values when loading.
 	Pcsx2Config old_config(std::move(EmuConfig));
 	EmuConfig = Pcsx2Config();
 	EmuConfig.CopyRuntimeConfig(old_config);
 	LoadSettings();
 	CheckForConfigChanges(old_config);
+	//resize imgui layout
+	if (HasValidVM())
+	{
+		//new layout calculates on gs draw rect which isnt updated yet
+		//flag true to recalculate on next gui render
+		GSResizeImGUIOnly(true);
+	}
 }
 
 void VMManager::ApplyCoreSettings()
@@ -566,7 +573,6 @@ void VMManager::ApplyCoreSettings()
 		WarnAboutUnsafeSettings();
 		ApplyGameFixes();
 	}
-
 	CheckForConfigChanges(old_config);
 }
 

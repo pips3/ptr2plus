@@ -26,6 +26,8 @@ enum class GenericInputBinding : u8;
 
 namespace ImGuiManager
 {
+	extern bool s_need_layout_update;
+
 	/// Sets the path to the font to use. Empty string means to use the default.
 	void SetFontPath(std::string path);
 

@@ -518,6 +518,9 @@ void EmuThread::setFullscreen(bool fullscreen, bool allow_render_to_main)
 	MTGS::UpdateDisplayWindow();
 	MTGS::WaitGS();
 
+	//flag to update imgui layout, stops incorrect layout/scale on transition to fullscreen when fullscreen ui not open
+	GSResizeImGUIOnly(true);
+
 	// If we're using exclusive fullscreen, the refresh rate may have changed.
 	UpdateVSyncRate(true);
 }

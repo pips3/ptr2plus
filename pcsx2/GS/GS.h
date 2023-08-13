@@ -97,6 +97,7 @@ void GSThrottlePresentation();
 void GSSetGameCRC(u32 crc);
 void GSSetDisplayAlignment(GSDisplayAlignment alignment);
 void GSResizeDisplayWindow(int width, int height, float scale);
+void GSResizeImGUIOnly(bool wait_for_next_render);
 void GSUpdateDisplayWindow();
 void GSSetVSyncMode(VsyncMode mode);
 

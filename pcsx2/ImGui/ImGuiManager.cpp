@@ -59,6 +59,8 @@ namespace ImGuiManager
 		std::pair<float, float> pos;
 	};
 
+	bool s_need_layout_update = false;
+
 	static void SetStyle();
 	static void SetKeyMap();
 	static bool LoadFontData();

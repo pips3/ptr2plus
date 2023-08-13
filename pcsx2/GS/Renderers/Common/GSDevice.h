@@ -783,6 +783,8 @@ protected:
 	GSTexture* m_current = nullptr;
 	GSTexture* m_cas = nullptr;
 
+	GSVector4 m_lastdrawrect;
+
 	struct
 	{
 		u32 start, count;
@@ -839,7 +841,8 @@ public:
 	__fi VsyncMode GetVsyncMode() const { return m_vsync_mode; }
 
 	__fi GSTexture* GetCurrent() const { return m_current; }
-
+	__fi GSVector2i GetDrawRectSize() const { return GSVector2i(static_cast<s32>(m_lastdrawrect.z - m_lastdrawrect.x), static_cast<s32>(m_lastdrawrect.w - m_lastdrawrect.y)); };
+	__fi void SetLastDrawRect(GSVector4 dr) { m_lastdrawrect = dr; }
 	void Recycle(GSTexture* t);
 
 	/// Returns true if it's an OpenGL-based renderer.

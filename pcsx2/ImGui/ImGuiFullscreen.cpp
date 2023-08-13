@@ -398,7 +398,12 @@ void ImGuiFullscreen::TextureLoaderThread()
 
 bool ImGuiFullscreen::UpdateLayoutScale()
 {
-	static constexpr float LAYOUT_RATIO = LAYOUT_SCREEN_WIDTH / LAYOUT_SCREEN_HEIGHT;
+	GSVector2i dRectSize = g_gs_device->GetDrawRectSize();
+	ImVec2 gameSize;
+	gameSize.x = static_cast<float>(dRectSize.x);
+	gameSize.y = static_cast<float>(dRectSize.y);
+
+	const static float LAYOUT_RATIO = LAYOUT_SCREEN_WIDTH / LAYOUT_SCREEN_HEIGHT;
 	const ImGuiIO& io = ImGui::GetIO();
 
 	const float screen_width = io.DisplaySize.x;
@@ -406,18 +411,30 @@ bool ImGuiFullscreen::UpdateLayoutScale()
 	const float screen_ratio = screen_width / screen_height;
 	const float old_scale = g_layout_scale;
 
-	if (screen_ratio > LAYOUT_RATIO)
+	const float game_ratio = gameSize.x / gameSize.y;
+
+	//float LAYOUT_HEIGHT = LAYOUT_SCREEN_HEIGHT;
+	float LAYOUT_WIDTH = LAYOUT_SCREEN_WIDTH;
+
+	//if game is 4:3, make layout width 4:3
+	if (LAYOUT_RATIO - game_ratio > 0.1f)
+	{
+		//LAYOUT_HEIGHT = LAYOUT_SCREEN_HEIGHT * game_ratio;
+		LAYOUT_WIDTH = LAYOUT_SCREEN_WIDTH / game_ratio;
+	}
+
+	if (screen_width > gameSize.x)
 	{
 		// screen is wider, use height, pad width
 		g_layout_scale = screen_height / LAYOUT_SCREEN_HEIGHT;
 		g_layout_padding_top = 0.0f;
-		g_layout_padding_left = (screen_width - (LAYOUT_SCREEN_WIDTH * g_layout_scale)) / 2.0f;
+		g_layout_padding_left = ( screen_width - gameSize.x ) / 2.0f; //(screen_width - (LAYOUT_SCREEN_WIDTH * g_layout_scale)) / 2.0f;
 	}
 	else
 	{
 		// screen is taller, use width, pad height
-		g_layout_scale = screen_width / LAYOUT_SCREEN_WIDTH;
-		g_layout_padding_top = (screen_height - (LAYOUT_SCREEN_HEIGHT * g_layout_scale)) / 2.0f;
+		g_layout_scale = screen_width / LAYOUT_WIDTH;
+		g_layout_padding_top = (screen_height - gameSize.y) / 2.0f; //(screen_height - (LAYOUT_SCREEN_HEIGHT * g_layout_scale)) / 2.0f;
 		g_layout_padding_left = 0.0f;
 	}
 
@@ -654,7 +671,7 @@ bool ImGuiFullscreen::BeginFullscreenWindow(const ImVec2& position, const ImVec2
 	const ImVec4& background /* = HEX_TO_IMVEC4(0x212121, 0xFF) */, float rounding /*= 0.0f*/, float padding /*= 0.0f*/,
 	ImGuiWindowFlags flags /*= 0*/)
 {
-	ImGui::SetNextWindowPos(position);
+	ImGui::SetNextWindowPos(position + ImVec2(g_layout_padding_left, g_layout_padding_top));
 	ImGui::SetNextWindowSize(size);
 
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, background);
@@ -691,11 +708,11 @@ void ImGuiFullscreen::BeginMenuButtons(u32 num_items, float y_align, float x_pad
 		if (window_height + LayoutScale(pauseLogo_height) > total_size)
 			if (y_centered)
 			{
-				ImGui::SetCursorPosY((window_height / 2 - total_size / 2) * y_align + LayoutScale(pauseLogo_height) / 2);
+				ImGui::SetCursorPosY((window_height / 2 - total_size / 2) * y_align + LayoutScale(pauseLogo_height) / 2 );
 			}
 			else
 			{
-				ImGui::SetCursorPosY((window_height - total_size) * y_align + LayoutScale(pauseLogo_height) / 2);
+				ImGui::SetCursorPosY((window_height - total_size) * y_align + LayoutScale(pauseLogo_height) / 2 );
 			}
 			
 	}

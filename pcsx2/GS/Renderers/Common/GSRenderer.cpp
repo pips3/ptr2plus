@@ -609,6 +609,7 @@ void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
 			src_rect, current->GetSize(), s_display_alignment, g_gs_device->UsesLowerLeftOrigin(),
 			GetVideoMode() == GSVideoMode::SDTV_480P);
 		s_last_draw_rect = draw_rect;
+		g_gs_device->SetLastDrawRect(s_last_draw_rect);
 
 		if (GSConfig.CASMode != GSCASMode::Disabled)
 		{
@@ -872,8 +873,9 @@ void GSRenderer::PresentCurrentFrame()
 			const GSVector4 draw_rect(CalculateDrawDstRect(g_gs_device->GetWindowWidth(), g_gs_device->GetWindowHeight(),
 				src_rect, current->GetSize(), s_display_alignment, g_gs_device->UsesLowerLeftOrigin(),
 				GetVideoMode() == GSVideoMode::SDTV_480P));
-			s_last_draw_rect = draw_rect;
 
+			s_last_draw_rect = draw_rect;
+			g_gs_device->SetLastDrawRect(s_last_draw_rect);
 			const u64 current_time = Common::Timer::GetCurrentValue();
 			const float shader_time = static_cast<float>(Common::Timer::ConvertValueToSeconds(current_time - m_shader_time_start));
 

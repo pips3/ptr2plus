@@ -63,6 +63,8 @@
 #include <utility>
 #include <vector>
 
+using ImGuiManager::s_need_layout_update;
+
 using ImGuiFullscreen::g_large_font;
 using ImGuiFullscreen::g_layout_padding_left;
 using ImGuiFullscreen::g_layout_padding_top;
@@ -792,7 +794,12 @@ void FullscreenUI::Render()
 		g_gs_device->Recycle(tex.release());
 	s_cleanup_textures.clear();
 	ImGuiFullscreen::UploadAsyncTextures();
-
+	if (ImGuiManager::s_need_layout_update)
+	{
+		//ImGuiFullscreen::UpdateLayoutScale();
+		ImGuiManager::UpdateScale();
+		ImGuiManager::s_need_layout_update = false;
+	}
 	ImGuiFullscreen::BeginLayout();
 
 #ifdef ENABLE_ACHIEVEMENTS
@@ -4408,17 +4415,19 @@ void FullscreenUI::DrawGameFixesSettingsPage()
 static void DrawShadowedText(
 	ImDrawList* dl, ImFont* font, const ImVec2& pos, u32 col, const char* text, const char* text_end = nullptr, float wrap_width = 0.0f)
 {
-	dl->AddText(font, font->FontSize, pos + LayoutScale(1.0f, 1.0f), IM_COL32(0, 0, 0, 100), text, text_end, wrap_width);
-	dl->AddText(font, font->FontSize, pos, col, text, text_end, wrap_width);
+	dl->AddText(font, font->FontSize, pos + LayoutScale(1.0f, 1.0f) + ImVec2(g_layout_padding_left, g_layout_padding_top), IM_COL32(0, 0, 0, 100), text, text_end, wrap_width);
+	dl->AddText(font, font->FontSize, pos + ImVec2(g_layout_padding_left, g_layout_padding_top), col, text, text_end, wrap_width);
 }
 
 void FullscreenUI::DrawPauseMenu(MainWindowType type)
 {
 	ImDrawList* dl = ImGui::GetBackgroundDrawList();
-	const ImVec2 display_size(ImGui::GetIO().DisplaySize);
+	const ImVec2 display_size(ImVec2(g_gs_device->GetWindowWidth(), g_gs_device->GetWindowHeight()));
+	const ImVec2 game_size(display_size - ImVec2(g_layout_padding_left * 2.0f, g_layout_padding_top * 2.0f));
+	//display_size += ImVec2(g_layout_padding_left, g_layout_padding_top);
 	const ImU32 text_color = IM_COL32(UIBackgroundTextColor.x * 255, UIBackgroundTextColor.y * 255, UIBackgroundTextColor.z * 255, 255);
-	dl->AddRectFilled(ImVec2(0.0f, 0.0f), display_size, IM_COL32(UIBackgroundColor.x * 255, UIBackgroundColor.y * 255, UIBackgroundColor.z * 255, 200));
-
+	dl->AddRectFilled(ImVec2(0.0f, 0.0f) + ImVec2(g_layout_padding_left, g_layout_padding_top), display_size - ImVec2(g_layout_padding_left, g_layout_padding_top), IM_COL32(UIBackgroundColor.x * 255, UIBackgroundColor.y * 255, UIBackgroundColor.z * 255, 200));
+	//dl->AddRectFilled(ImVec2(0.0f, 0.0f), display_size, IM_COL32(UIBackgroundColor.x * 255, UIBackgroundColor.y * 255, UIBackgroundColor.z * 255, 200));
 	// title info
 	{
 #ifdef ENABLE_ACHIEVEMENTS
@@ -4440,10 +4449,10 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 			g_medium_font->FontSize, std::numeric_limits<float>::max(), -1.0f, s_current_game_subtitle.c_str()));
 
 		ImVec2 title_pos(
-			display_size.x - LayoutScale(10.0f + image_width + 20.0f) - title_size.x, display_size.y - LayoutScale(10.0f + image_height));
-		ImVec2 path_pos(display_size.x - LayoutScale(10.0f + image_width + 20.0f) - path_size.x,
+			game_size.x - LayoutScale(10.0f + image_width + 20.0f) - title_size.x, game_size.y - LayoutScale(10.0f + image_height));
+		ImVec2 path_pos(game_size.x - LayoutScale(10.0f + image_width + 20.0f) - path_size.x,
 			title_pos.y + g_large_font->FontSize + LayoutScale(4.0f));
-		ImVec2 subtitle_pos(display_size.x - LayoutScale(10.0f + image_width + 20.0f) - subtitle_size.x,
+		ImVec2 subtitle_pos(game_size.x - LayoutScale(10.0f + image_width + 20.0f) - subtitle_size.x,
 			(path_string.empty() ? title_pos.y : path_pos.y) + g_medium_font->FontSize + LayoutScale(4.0f));
 
 		float rp_height = 0.0f;
@@ -4470,7 +4479,7 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 				// we make the image one line higher, so we only need to compensate when it's multiline RP
 				rp_height = rp_size.y - g_medium_font->FontSize;
 
-				const ImVec2 rp_pos(display_size.x - LayoutScale(20.0f + 50.0f + 20.0f) - rp_size.x - rp_height,
+				const ImVec2 rp_pos(game_size.x - LayoutScale(20.0f + 50.0f + 20.0f) - rp_size.x - rp_height,
 					subtitle_pos.y + g_medium_font->FontSize + LayoutScale(4.0f));
 
 				title_pos.y -= rp_height;
@@ -4485,11 +4494,11 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 
 		GSTexture* const cover = GetCoverForCurrentGame();
 		const ImVec2 image_min(
-			display_size.x - LayoutScale(10.0f + image_width) - rp_height, display_size.y - LayoutScale(10.0f + image_height) - rp_height);
+			game_size.x - LayoutScale(10.0f + image_width) - rp_height, game_size.y - LayoutScale(10.0f + image_height) - rp_height);
 		const ImVec2 image_max(image_min.x + LayoutScale(image_width) + rp_height, image_min.y + LayoutScale(image_height) + rp_height);
 		const ImRect image_rect(CenterImage(
-			ImRect(image_min, image_max), ImVec2(static_cast<float>(cover->GetWidth()), static_cast<float>(cover->GetHeight()))));
-		dl->AddImage(cover->GetNativeHandle(), image_rect.Min, image_rect.Max);
+			ImRect(image_min, image_max) , ImVec2(static_cast<float>(cover->GetWidth()), static_cast<float>(cover->GetHeight()))));
+		dl->AddImage(cover->GetNativeHandle(), image_rect.Min + ImVec2(g_layout_padding_left, g_layout_padding_top), image_rect.Max + ImVec2(g_layout_padding_left, g_layout_padding_top));
 	}
 	
 
@@ -4506,7 +4515,7 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 		std::strftime(buf, sizeof(buf), "%X", &ltime);
 
 		const ImVec2 time_size(g_large_font->CalcTextSizeA(g_large_font->FontSize, std::numeric_limits<float>::max(), -1.0f, buf));
-		const ImVec2 time_pos(display_size.x - LayoutScale(10.0f) - time_size.x, LayoutScale(10.0f));
+		const ImVec2 time_pos(game_size.x - LayoutScale(10.0f) - time_size.x, LayoutScale(10.0f));
 		DrawShadowedText(dl, g_large_font, time_pos, text_color, buf);
 
 		if (!s_current_disc_serial.empty())
@@ -4519,24 +4528,24 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 			std::snprintf(buf, std::size(buf), "This Session: %s", session_time_str.c_str());
 			const ImVec2 session_size(g_medium_font->CalcTextSizeA(g_medium_font->FontSize, std::numeric_limits<float>::max(), -1.0f, buf));
 			const ImVec2 session_pos(
-				display_size.x - LayoutScale(10.0f) - session_size.x, time_pos.y + g_large_font->FontSize + LayoutScale(4.0f));
+				game_size.x - LayoutScale(10.0f) - session_size.x, time_pos.y + g_large_font->FontSize + LayoutScale(4.0f));
 			DrawShadowedText(dl, g_medium_font, session_pos, text_color, buf);
 
 			std::snprintf(buf, std::size(buf), "All Time: %s", played_time_str.c_str());
 			const ImVec2 total_size(g_medium_font->CalcTextSizeA(g_medium_font->FontSize, std::numeric_limits<float>::max(), -1.0f, buf));
 			const ImVec2 total_pos(
-				display_size.x - LayoutScale(10.0f) - total_size.x, session_pos.y + g_medium_font->FontSize + LayoutScale(4.0f));
+				game_size.x - LayoutScale(10.0f) - total_size.x, session_pos.y + g_medium_font->FontSize + LayoutScale(4.0f));
 			DrawShadowedText(dl, g_medium_font, total_pos, text_color, buf);
 		}
 	}
 
 	//const ImVec2 window_size(LayoutScale(500.0f, LAYOUT_SCREEN_HEIGHT));
 	//const ImVec2 window_size(LayoutScale(LAYOUT_SCREEN_WIDTH, LAYOUT_SCREEN_HEIGHT));
-	const ImVec2 window_size(display_size.x, display_size.y);
+	const ImVec2 window_size(game_size.x, game_size.y);
 
-	const ImVec2 window_pos(0.0f, display_size.y - window_size.y);
-
-	
+	//const ImVec2 window_pos(0.0f, display_size.y - window_size.y);
+	//const ImVec2 window_pos(ImVec2(g_layout_padding_left, g_layout_padding_top));
+	const ImVec2 window_pos(0.0f, 0.0f);
 
 	if (BeginFullscreenWindow(
 			window_pos, window_size, "pause_menu", ImVec4(0.0f, 0.0f, 0.0f, 0.0f), 0.0f, 10.0f, ImGuiWindowFlags_NoBackground))
@@ -4555,7 +4564,7 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 		const float image_width = static_cast<float>(pausedLogo->GetWidth()) * 0.8f;
 		const float image_height = static_cast<float>(pausedLogo->GetHeight()) * 0.8f;
 		const ImVec2 image_min_pre(
-			display_size.x / 2 - LayoutScale(image_width) / 2, display_size.y / 2 - LayoutScale(image_height) / 2);
+			game_size.x / 2 - LayoutScale(image_width) / 2, game_size.y / 2 - LayoutScale(image_height) / 2);
 		const ImVec2 image_max_pre(image_min_pre.x + LayoutScale(image_width), image_min_pre.y + LayoutScale(image_height));
 		const ImRect image_rect_pre(CenterImage(
 			ImRect(image_min_pre, image_max_pre), ImVec2(static_cast<float>(pausedLogo->GetWidth()), static_cast<float>(pausedLogo->GetHeight()))));
@@ -4570,11 +4579,11 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 		
 		//draw pause logo
 		const ImVec2 image_min(
-			display_size.x / 2 - LayoutScale(image_width) / 2, ImGui::GetCursorPosY());
+			game_size.x / 2 - LayoutScale(image_width) / 2, ImGui::GetCursorPosY() + g_layout_padding_top);
 		const ImVec2 image_max(image_min.x + LayoutScale(image_width), image_min.y + LayoutScale(image_height));
 		const ImRect image_rect(CenterImage(
 			ImRect(image_min, image_max), ImVec2(static_cast<float>(pausedLogo->GetWidth()), static_cast<float>(pausedLogo->GetHeight()))));
-		dl->AddImage(pausedLogo->GetNativeHandle(), image_rect.Min, image_rect.Max);
+		dl->AddImage(pausedLogo->GetNativeHandle(), image_rect.Min + ImVec2(g_layout_padding_left, 0), image_rect.Max + ImVec2(g_layout_padding_left, 0) );
 
 		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + image_rect.GetHeight());
 

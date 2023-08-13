@@ -512,7 +512,18 @@ void GSSetGameCRC(u32 crc)
 void GSResizeDisplayWindow(int width, int height, float scale)
 {
 	g_gs_device->ResizeWindow(width, height, scale);
-	ImGuiManager::WindowResized();
+	//ImGuiManager::WindowResized(); commented out as new function made for this - GSResizeImGUIOnly()
+}
+
+void GSResizeImGUIOnly(bool wait_for_next_render)
+{
+	if (!wait_for_next_render)
+	{
+		ImGuiManager::WindowResized();
+	}
+	else
+		ImGuiManager::s_need_layout_update = true;
+
 }
 
 void GSUpdateDisplayWindow()

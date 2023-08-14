@@ -1572,7 +1572,7 @@ void ImGuiFullscreen::RightAlignNavButtons(u32 num_items /*= 0*/, float item_wid
 
 	const float total_item_width = style.FramePadding.x * 2.0f + style.FrameBorderSize + style.ItemSpacing.x + LayoutScale(item_width);
 	const float margin = total_item_width * static_cast<float>(num_items);
-	ImGui::SetCursorPosX(window->InnerClipRect.Max.x - margin - style.FramePadding.x);
+	ImGui::SetCursorPosX(window->InnerClipRect.Max.x - margin - style.FramePadding.x - g_layout_padding_left);
 }
 
 bool ImGuiFullscreen::NavButton(const char* title, bool is_active, bool enabled /* = true */, float width /* = -1.0f */,

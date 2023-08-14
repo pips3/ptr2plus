@@ -150,6 +150,7 @@ namespace FullscreenUI
 		None,
 		Landing,
 		GameList,
+		ModMenu,
 		Settings,
 		PauseMenu,
 #ifdef ENABLE_ACHIEVEMENTS
@@ -165,6 +166,12 @@ namespace FullscreenUI
 #ifdef ENABLE_ACHIEVEMENTS
 		Achievements,
 #endif
+	};
+
+	enum class ModMenuPage
+	{
+		Mods,
+		TexturePacks
 	};
 
 	enum class SettingsPage
@@ -284,11 +291,17 @@ namespace FullscreenUI
 	static constexpr double INPUT_BINDING_TIMEOUT_SECONDS = 5.0;
 	static constexpr u32 NUM_MEMORY_CARD_PORTS = 2;
 
+	static void SwitchToModMenu();
 	static void SwitchToSettings();
 	static void SwitchToGameSettings();
 	static void SwitchToGameSettings(const std::string& path);
 	static void SwitchToGameSettings(const GameList::Entry* entry);
 	static void SwitchToGameSettings(const std::string_view& serial, u32 crc);
+
+	static void DrawModMenuWindow();
+	static void DrawModsPage();
+	static void DrawTexturePacksPage();
+
 	static void DrawSettingsWindow();
 	static void DrawSummarySettingsPage();
 	static void DrawInterfaceSettingsPage();
@@ -379,6 +392,7 @@ namespace FullscreenUI
 	static void StartAutomaticBinding(u32 port);
 	static void DrawSettingInfoSetting(SettingsInterface* bsi, const char* section, const char* key, const SettingInfo& si);
 
+	static ModMenuPage s_modmenu_page = ModMenuPage::Mods;
 	static SettingsPage s_settings_page = SettingsPage::Interface;
 	static std::unique_ptr<INISettingsInterface> s_game_settings_interface;
 	static std::unique_ptr<GameList::Entry> s_game_settings_entry;
@@ -821,6 +835,9 @@ void FullscreenUI::Render()
 			break;
 		case MainWindowType::Settings:
 			DrawSettingsWindow();
+			break;
+		case MainWindowType::ModMenu:
+			DrawModMenuWindow();
 			break;
 		case MainWindowType::PauseMenu:
 			DrawPauseMenu(s_current_main_window);
@@ -2345,6 +2362,20 @@ void FullscreenUI::DrawSettingInfoSetting(SettingsInterface* bsi, const char* se
 	}
 }
 
+void FullscreenUI::SwitchToModMenu()
+{
+	s_game_settings_entry.reset();
+	s_game_settings_interface.reset();
+	s_game_patch_list = {};
+	s_enabled_game_patch_cache = {};
+	s_game_cheats_list = {};
+	s_enabled_game_cheat_cache = {};
+	PopulateGraphicsAdapterList();
+
+	s_current_main_window = MainWindowType::ModMenu;
+	s_settings_page = SettingsPage::Interface;
+}
+
 void FullscreenUI::SwitchToSettings()
 {
 	s_game_settings_entry.reset();
@@ -2467,11 +2498,149 @@ void FullscreenUI::DoClearGameSettings()
 		fmt::format("Game settings have been cleared for '{}'.", Path::GetFileTitle(s_game_settings_interface->GetFileName())));
 }
 
-void FullscreenUI::DrawSettingsWindow()
+void FullscreenUI::DrawModMenuWindow()
 {
+	const ImVec2 display_size(ImVec2(g_gs_device->GetWindowWidth(), g_gs_device->GetWindowHeight()));
+	const ImVec2 game_size(display_size - ImVec2(g_layout_padding_left * 2.0f, g_layout_padding_top * 2.0f));
+
 	ImGuiIO& io = ImGui::GetIO();
 	ImVec2 heading_size =
-		ImVec2(io.DisplaySize.x, LayoutScale(LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY + LAYOUT_MENU_BUTTON_Y_PADDING * 2.0f + 2.0f));
+		ImVec2(game_size.x, LayoutScale(LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY + LAYOUT_MENU_BUTTON_Y_PADDING * 2.0f + 2.0f));
+
+	const float bg_alpha = VMManager::HasValidVM() ? 0.90f : 1.0f;
+
+	if (BeginFullscreenWindow(
+			ImVec2(0.0f, 0.0f), heading_size, "settings_category", ImVec4(UIPrimaryColor.x, UIPrimaryColor.y, UIPrimaryColor.z, bg_alpha)))
+	{
+		static constexpr float ITEM_WIDTH = 25.0f;
+
+		static constexpr const char* global_icons[] = {ICON_FA_SLIDERS_H, ICON_FA_MAGIC};
+		static constexpr ModMenuPage global_pages[] = {ModMenuPage::Mods, ModMenuPage::TexturePacks};
+
+		static constexpr const char* titles[] = {"Mods", "Texture Packs"};
+
+		SettingsInterface* bsi = GetEditingSettingsInterface();
+
+		const u32 count = std::size(global_pages);
+		const char* const* icons = global_icons;
+		const ModMenuPage* pages = global_pages;
+		u32 index = 0;
+		for (u32 i = 0; i < count; i++)
+		{
+			if (pages[i] == s_modmenu_page)
+			{
+				index = i;
+				break;
+			}
+		}
+
+		BeginNavBar();
+
+		if (!ImGui::IsPopupOpen(0u, ImGuiPopupFlags_AnyPopup))
+		{
+			if (ImGui::IsNavInputTest(ImGuiNavInput_FocusPrev, ImGuiNavReadMode_Pressed))
+			{
+				index = (index == 0) ? (count - 1) : (index - 1);
+				s_modmenu_page = pages[index];
+			}
+			else if (ImGui::IsNavInputTest(ImGuiNavInput_FocusNext, ImGuiNavReadMode_Pressed))
+			{
+				index = (index + 1) % count;
+				s_modmenu_page = pages[index];
+			}
+		}
+
+		if (NavButton(ICON_FA_BACKWARD, true, true))
+			ReturnToMainWindow();
+
+		NavTitle(titles[static_cast<u32>(pages[index])]);
+
+		RightAlignNavButtons(count, ITEM_WIDTH, LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY);
+
+		for (u32 i = 0; i < count; i++)
+		{
+			if (NavButton(icons[i], i == index, true, ITEM_WIDTH, LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY))
+			{
+				s_modmenu_page = pages[i];
+			}
+		}
+
+		EndNavBar();
+	}
+
+	EndFullscreenWindow();
+
+	if (BeginFullscreenWindow(ImVec2(0.0f, heading_size.y), ImVec2(game_size.x, game_size.y - heading_size.y), "settings_parent",
+			ImVec4(UIBackgroundColor.x, UIBackgroundColor.y, UIBackgroundColor.z, bg_alpha)))
+	{
+		ResetFocusHere();
+
+		if (WantsToCloseMenu())
+		{
+			if (ImGui::IsWindowFocused())
+				ReturnToMainWindow();
+		}
+
+		switch (s_modmenu_page)
+		{
+			case ModMenuPage::Mods:
+				DrawModsPage();
+				break;
+
+			case ModMenuPage::TexturePacks:
+				DrawTexturePacksPage();
+				break;
+
+			default:
+				break;
+		}
+	}
+
+	EndFullscreenWindow();
+}
+
+void FullscreenUI::DrawModsPage()
+{
+	SettingsInterface* bsi = GetEditingSettingsInterface();
+
+	BeginMenuButtons();
+
+	MenuHeading("Installed Mods");
+
+	DrawToggleSetting(bsi, "Some mod",
+		"This is a definitely real mod right here", "EmuCore", "InhibitScreensaver",
+		true);
+
+	DrawToggleSetting(bsi, "Amazing Mod",
+		"This is a definitely real mod right here", "EmuCore", "InhibitScreensaver",
+		true);
+
+	DrawToggleSetting(bsi, "Wow mod",
+		"This is a definitely real mod right here", "EmuCore", "InhibitScreensaver",
+		true);
+
+	MenuHeading("Loading Behaviour");
+
+	DrawToggleSetting(bsi, ICON_FA_ARROW_DOWN " Prority",
+		"Determines Priority Over Other Installed Mods OR Whatever", "EmuCore", "InhibitScreensaver",
+		true);
+
+	EndMenuButtons();
+
+}
+
+void FullscreenUI::DrawTexturePacksPage()
+{
+}
+
+void FullscreenUI::DrawSettingsWindow()
+{
+	const ImVec2 display_size(ImVec2(g_gs_device->GetWindowWidth(), g_gs_device->GetWindowHeight()));
+	const ImVec2 game_size(display_size - ImVec2(g_layout_padding_left * 2.0f, g_layout_padding_top * 2.0f));
+
+	ImGuiIO& io = ImGui::GetIO();
+	ImVec2 heading_size =
+		ImVec2(game_size.x, LayoutScale(LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY + LAYOUT_MENU_BUTTON_Y_PADDING * 2.0f + 2.0f));
 
 	const float bg_alpha = VMManager::HasValidVM() ? 0.90f : 1.0f;
 
@@ -2552,7 +2721,7 @@ void FullscreenUI::DrawSettingsWindow()
 
 	EndFullscreenWindow();
 
-	if (BeginFullscreenWindow(ImVec2(0.0f, heading_size.y), ImVec2(io.DisplaySize.x, io.DisplaySize.y - heading_size.y), "settings_parent",
+	if (BeginFullscreenWindow(ImVec2(0.0f, heading_size.y), ImVec2(game_size.x, game_size.y - heading_size.y), "settings_parent",
 			ImVec4(UIBackgroundColor.x, UIBackgroundColor.y, UIBackgroundColor.z, bg_alpha)))
 	{
 		ResetFocusHere();
@@ -4551,7 +4720,7 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 			window_pos, window_size, "pause_menu", ImVec4(0.0f, 0.0f, 0.0f, 0.0f), 0.0f, 10.0f, ImGuiWindowFlags_NoBackground))
 	{
 		static constexpr u32 submenu_item_count[] = {
-			11, // None
+			9, // None
 			4, // Exit
 #ifdef ENABLE_ACHIEVEMENTS
 			3, // Achievements
@@ -4619,6 +4788,10 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 					if (OpenSaveStateSelector(false))
 						s_current_main_window = MainWindowType::None;
 				}
+
+				if (ActiveButton(ICON_FA_SLIDERS_H " Mod Menu", false))
+					SwitchToModMenu();
+
 				if (expertMode)
 				{
 					if (ActiveButton(ICON_FA_WRENCH " Game Properties", false, can_load_or_save_state))

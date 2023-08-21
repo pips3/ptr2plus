@@ -62,6 +62,7 @@ namespace ImGuiFullscreen
 	static void SetFileSelectorDirectory(std::string dir);
 	static ImGuiID GetBackgroundProgressID(const char* str_id);
 
+	std::string current_summary;
 	ImFont* g_standard_font = nullptr;
 	ImFont* g_medium_font = nullptr;
 	ImFont* g_large_font = nullptr;
@@ -987,11 +988,12 @@ bool ImGuiFullscreen::MenuButton(const char* title, const char* summary, bool en
 	ImGui::RenderTextClipped(title_bb.Min, title_bb.Max, title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
 	ImGui::PopFont();
 
-	if (summary)
+	if (summary && hovered && enabled)
 	{
-		ImGui::PushFont(summary_font);
-		ImGui::RenderTextClipped(summary_bb.Min, summary_bb.Max, summary, nullptr, nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
-		ImGui::PopFont();
+		current_summary = summary;
+		//ImGui::PushFont(summary_font);
+		//ImGui::RenderTextClipped(summary_bb.Min, summary_bb.Max, summary, nullptr, nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
+		//ImGui::PopFont();
 	}
 
 	if (!enabled)
@@ -1051,11 +1053,12 @@ bool ImGuiFullscreen::MenuImageButton(const char* title, const char* summary, Im
 	ImGui::RenderTextClipped(title_bb.Min, title_bb.Max, title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
 	ImGui::PopFont();
 
-	if (summary)
+	if (summary && hovered && enabled)
 	{
-		ImGui::PushFont(summary_font);
-		ImGui::RenderTextClipped(summary_bb.Min, summary_bb.Max, summary, nullptr, nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
-		ImGui::PopFont();
+		current_summary = summary;
+		//ImGui::PushFont(summary_font);
+		//ImGui::RenderTextClipped(summary_bb.Min, summary_bb.Max, summary, nullptr, nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
+		//ImGui::PopFont();
 	}
 
 	if (!enabled)
@@ -1164,8 +1167,8 @@ bool ImGuiFullscreen::ToggleButton(
 
 	const float midpoint = bb.Min.y + font->FontSize + LayoutScale(4.0f);
 	const ImRect title_bb(bb.Min, ImVec2(bb.Max.x, midpoint));
-	const ImRect summary_bb(ImVec2(bb.Min.x, midpoint), bb.Max);
 
+	
 	if (!enabled)
 		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
 
@@ -1173,11 +1176,12 @@ bool ImGuiFullscreen::ToggleButton(
 	ImGui::RenderTextClipped(title_bb.Min, title_bb.Max, title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
 	ImGui::PopFont();
 
-	if (summary)
+	if (summary && hovered && enabled)
 	{
-		ImGui::PushFont(summary_font);
-		ImGui::RenderTextClipped(summary_bb.Min, summary_bb.Max, summary, nullptr, nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
-		ImGui::PopFont();
+		current_summary = summary;
+		//ImGui::PushFont(summary_font);
+		//ImGui::RenderTextClipped(summary_bb.Min, summary_bb.Max, summary, nullptr, nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
+		//ImGui::PopFont();
 	}
 
 	if (!enabled)
@@ -1244,11 +1248,12 @@ bool ImGuiFullscreen::ThreeWayToggleButton(
 	ImGui::RenderTextClipped(title_bb.Min, title_bb.Max, title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
 	ImGui::PopFont();
 
-	if (summary)
+	if (summary && hovered && enabled)
 	{
-		ImGui::PushFont(summary_font);
-		ImGui::RenderTextClipped(summary_bb.Min, summary_bb.Max, summary, nullptr, nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
-		ImGui::PopFont();
+		current_summary = summary;
+		//ImGui::PushFont(summary_font);
+		//ImGui::RenderTextClipped(summary_bb.Min, summary_bb.Max, summary, nullptr, nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
+		//ImGui::PopFont();
 	}
 
 	if (!enabled)
@@ -1327,11 +1332,12 @@ bool ImGuiFullscreen::RangeButton(const char* title, const char* summary, s32* v
 	ImGui::RenderTextClipped(bb.Min, bb.Max, value_text.c_str(), nullptr, nullptr, ImVec2(1.0f, 0.5f), &bb);
 	ImGui::PopFont();
 
-	if (summary)
+	if (summary && hovered && enabled)
 	{
-		ImGui::PushFont(summary_font);
-		ImGui::RenderTextClipped(summary_bb.Min, summary_bb.Max, summary, nullptr, nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
-		ImGui::PopFont();
+		current_summary = summary;
+		//ImGui::PushFont(summary_font);
+		//ImGui::RenderTextClipped(summary_bb.Min, summary_bb.Max, summary, nullptr, nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
+		//ImGui::PopFont();
 	}
 
 	if (!enabled)
@@ -1397,11 +1403,12 @@ bool ImGuiFullscreen::RangeButton(const char* title, const char* summary, float*
 	ImGui::RenderTextClipped(bb.Min, bb.Max, value_text.c_str(), nullptr, nullptr, ImVec2(1.0f, 0.5f), &bb);
 	ImGui::PopFont();
 
-	if (summary)
+	if (summary && hovered && enabled)
 	{
-		ImGui::PushFont(summary_font);
-		ImGui::RenderTextClipped(summary_bb.Min, summary_bb.Max, summary, nullptr, nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
-		ImGui::PopFont();
+		current_summary = summary;
+		//ImGui::PushFont(summary_font);
+		//ImGui::RenderTextClipped(summary_bb.Min, summary_bb.Max, summary, nullptr, nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
+		//ImGui::PopFont();
 	}
 
 	if (!enabled)
@@ -1465,11 +1472,12 @@ bool ImGuiFullscreen::MenuButtonWithValue(
 	ImGui::RenderTextClipped(bb.Min, bb.Max, value, nullptr, nullptr, ImVec2(1.0f, 0.5f), &bb);
 	ImGui::PopFont();
 
-	if (summary)
+	if (summary && hovered && enabled)
 	{
-		ImGui::PushFont(summary_font);
-		ImGui::RenderTextClipped(summary_bb.Min, summary_bb.Max, summary, nullptr, nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
-		ImGui::PopFont();
+		current_summary = summary;
+		//ImGui::PushFont(summary_font);
+		//ImGui::RenderTextClipped(summary_bb.Min, summary_bb.Max, summary, nullptr, nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
+		//ImGui::PopFont();
 	}
 
 	if (!enabled)

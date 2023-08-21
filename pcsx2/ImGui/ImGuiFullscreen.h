@@ -43,6 +43,8 @@ namespace ImGuiFullscreen
 	static constexpr float LAYOUT_MENU_BUTTON_X_PADDING = 15.0f;
 	static constexpr float LAYOUT_MENU_BUTTON_Y_PADDING = 10.0f;
 
+	extern std::string current_summary;
+
 	extern ImFont* g_standard_font;
 	extern ImFont* g_medium_font;
 	extern ImFont* g_large_font;

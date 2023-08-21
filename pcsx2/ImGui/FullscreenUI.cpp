@@ -2644,6 +2644,49 @@ void FullscreenUI::DrawSettingsWindow()
 
 	const float bg_alpha = VMManager::HasValidVM() ? 0.90f : 1.0f;
 
+
+	//draw bottom subtitle description
+	ImVec2 subtitle_size = ImVec2(game_size.x, LayoutScale(LAYOUT_MENU_BUTTON_HEIGHT + LAYOUT_MENU_BUTTON_Y_PADDING * 4.0f + 2.0f));
+	const ImGuiStyle& style = ImGui::GetStyle();
+	if (BeginFullscreenWindow(ImVec2(0.0f + style.FrameBorderSize + style.ItemSpacing.x, game_size.y - subtitle_size.y + style.FrameBorderSize + style.ItemSpacing.y), ImVec2(game_size.x - (style.FrameBorderSize + style.ItemSpacing.x) * 2 + LayoutScale(1.0f), subtitle_size.y - (style.FrameBorderSize + style.ItemSpacing.y) * 2), "settings_subtitle",
+			ImVec4(0.0f, 0.0f, 0.0f, bg_alpha), 30.0f))
+	{
+		//HEX_TO_IMVEC4(0x000000, bg_alpha)
+		//const char* summary = ImGuiFullscreen::current_summary.data();
+		//summary.length();
+		if (ImGuiFullscreen::current_summary.length() > 2)
+		{
+
+			ImDrawList* dl = ImGui::GetWindowDrawList();
+			const ImU32 text_color = IM_COL32(UIBackgroundTextColor.x * 255, UIBackgroundTextColor.y * 255, UIBackgroundTextColor.z * 255, 255);
+			ImVec2 text_size(
+				g_large_font->CalcTextSizeA(g_large_font->FontSize, std::numeric_limits<float>::max(), -1.0f, ImGuiFullscreen::current_summary.data()));
+			/* std::string display_text = ImGuiFullscreen::current_summary.data();
+			display_text = display_text + "lol"
+			
+			while (text_size.x > game_size.x - (style.FrameBorderSize + style.ItemSpacing.x) * 2)
+			{
+				ImGuiFullscreen::current_summary.data()
+				text_size = ImVec2(g_large_font->CalcTextSizeA(g_large_font->FontSize, std::numeric_limits<float>::max(), -1.0f, ImGuiFullscreen::current_summary.data()));
+			}
+			*/
+			ImVec2 text_pos(0.0f + (game_size.x - text_size.x) / 2, game_size.y - subtitle_size.y / 2 - (text_size.y * 2) / 3);
+			if (text_size.x > game_size.x - (style.FrameBorderSize + style.ItemSpacing.x) * 4 - LayoutScale(40.0f) * 2)
+			{
+				text_pos = ImVec2(0.0f + (style.FrameBorderSize + style.ItemSpacing.x) * 2 + LayoutScale(40.0f), game_size.y - subtitle_size.y / 2 - text_size.y);
+			}
+
+			//DrawShadowedText(dl, g_medium_font, ImVec2(0.0f, game_size.y - heading_size.y - subtitle_size.y), text_color, ImGuiFullscreen::current_summary.data());
+			dl->AddText(g_large_font, g_large_font->FontSize, text_pos + ImVec2(g_layout_padding_left, g_layout_padding_top), text_color, ImGuiFullscreen::current_summary.data(), nullptr, game_size.x - (style.FrameBorderSize + style.ItemSpacing.x) * 4 - LayoutScale(40.0f) * 2);
+			ImGuiFullscreen::current_summary = "";
+			//draw summary in subtitle area instead
+			//const ImVec2 display_size(ImVec2(g_gs_device->GetWindowWidth(), g_gs_device->GetWindowHeight()));
+			//const ImVec2 game_size(display_size - ImVec2(g_layout_padding_left * 2.0f, g_layout_padding_top * 2.0f));
+			//const ImRect summary_bb(ImVec2(bb.Min.x, game_size.y + g_layout_padding_top - LAYOUT_MENU_BUTTON_HEIGHT), ImVec2(bb.Max.x, game_size.y + g_layout_padding_top));
+		}
+	}
+	EndFullscreenWindow();
+
 	if (BeginFullscreenWindow(
 			ImVec2(0.0f, 0.0f), heading_size, "settings_category", ImVec4(UIPrimaryColor.x, UIPrimaryColor.y, UIPrimaryColor.z, bg_alpha)))
 	{
@@ -2721,7 +2764,8 @@ void FullscreenUI::DrawSettingsWindow()
 
 	EndFullscreenWindow();
 
-	if (BeginFullscreenWindow(ImVec2(0.0f, heading_size.y), ImVec2(game_size.x, game_size.y - heading_size.y), "settings_parent",
+
+	if (BeginFullscreenWindow(ImVec2(0.0f, heading_size.y), ImVec2(game_size.x, game_size.y - heading_size.y - subtitle_size.y), "settings_parent",
 			ImVec4(UIBackgroundColor.x, UIBackgroundColor.y, UIBackgroundColor.z, bg_alpha)))
 	{
 		ResetFocusHere();

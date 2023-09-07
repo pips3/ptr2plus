@@ -35,7 +35,7 @@ namespace ImGuiFullscreen
 
 	static constexpr float LAYOUT_SCREEN_WIDTH = 1280.0f;
 	static constexpr float LAYOUT_SCREEN_HEIGHT = 720.0f;
-	static constexpr float LAYOUT_LARGE_FONT_SIZE = 26.0f;
+	static constexpr float LAYOUT_LARGE_FONT_SIZE = 30.0f; //26.0f;
 	static constexpr float LAYOUT_MEDIUM_FONT_SIZE = 16.0f;
 	static constexpr float LAYOUT_SMALL_FONT_SIZE = 10.0f;
 	static constexpr float LAYOUT_MENU_BUTTON_HEIGHT = 50.0f;
@@ -185,6 +185,8 @@ namespace ImGuiFullscreen
 	bool EnumChoiceButtonImpl(const char* title, const char* summary, s32* value_pointer,
 		const char* (*to_display_name_function)(s32 value, void* opaque), void* opaque, u32 count, bool enabled, float height, ImFont* font,
 		ImFont* summary_font);
+
+	void DrawSettingsTextOutline(ImRect title_bb, ImFont* title_font, const char* title, float outline_size, bool enabled, ImVec2 align);
 
 	template <typename DataType, typename CountType>
 	static __fi bool EnumChoiceButton(const char* title, const char* summary, DataType* value_pointer,

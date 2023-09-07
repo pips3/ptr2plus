@@ -228,6 +228,8 @@ namespace FullscreenUI
 	static void DrawAboutWindow();
 	static void OpenAboutWindow();
 
+	static ImVec4 CalcGradientStartEnd(ImVec2 rect_size, float gradient_thickness); //, float angle);
+
 	static MainWindowType s_current_main_window = MainWindowType::None;
 	static PauseSubMenu s_current_pause_submenu = PauseSubMenu::None;
 	static bool s_initialized = false;
@@ -1302,6 +1304,8 @@ void FullscreenUI::DrawInputBindingButton(
 	}
 
 	ImGui::PushFont(g_large_font);
+	ImGuiFullscreen::DrawSettingsTextOutline(title_bb, g_large_font, show_type ? title.c_str() : display_name, 2.5f, true, ImVec2(0.0f, 0.0f));
+
 	ImGui::RenderTextClipped(
 		title_bb.Min, title_bb.Max, show_type ? title.c_str() : display_name, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
 	ImGui::PopFont();
@@ -2635,20 +2639,82 @@ void FullscreenUI::DrawTexturePacksPage()
 
 void FullscreenUI::DrawSettingsWindow()
 {
+
+	const ImGuiStyle& style = ImGui::GetStyle();
+	ImGuiIO& io = ImGui::GetIO();
+
+	float large_font_height = g_large_font->CalcTextSizeA(g_large_font->FontSize, std::numeric_limits<float>::max(), -1.0f, "test").y;
+	const float bg_alpha = VMManager::HasValidVM() ? 0.90f : 1.0f;
+	float heading_text_scale = 1.2f;
+	float heading_text_height = heading_text_scale * large_font_height;
+	float subtitle_overlap_percent = 0.2f;
+
+	float bevel_thickness = LayoutScale(6.0f);
+
+//Colours
+	ImVec4 bg_col = HEX_TO_IMVEC4(0x0000C8, 0xFF);
+	ImVec4 folder_col = HEX_TO_IMVEC4(0xDA5F0C, 0xFF);
+	ImVec4 folder_shadow_col = HEX_TO_IMVEC4(0x93400B, 0xFF);
+	ImVec4 folder_highlight_col = HEX_TO_IMVEC4(0xFF761C, 0xFF);
+
+	ImVec4 inner_content_col = HEX_TO_IMVEC4(0xFFAF15, 0xFF);
+
+	ImVec4 text_col = HEX_TO_IMVEC4(0xFFFFFF, 0xFF);
+	ImVec4 text_outline_col = HEX_TO_IMVEC4(0xB05C00, 0xFF);
+	ImVec4 text_disabled_col = ImLerp(text_col, inner_content_col, 0.5f);
+	ImVec4 text_outline_disabled_col = ImLerp(text_outline_col, inner_content_col, 0.5f);
+
+	/* not used yet 
+	ImVec4 option_col = HEX_TO_IMVEC4(0xE4B000, 0xFF);
+	ImVec4 option_shadow_col = HEX_TO_IMVEC4(0xCA8E03, 0xFF);
+	ImVec4 option_highlight_col = HEX_TO_IMVEC4(0xE9E90A, 0xFF);
+
+	ImVec4 option_selected_col = ImLerp(option_col, HEX_TO_IMVEC4(0xFFFFFF, 0xFF), 0.2f);
+	ImVec4 option_shadow_selected_col = ImLerp(option_shadow_col, HEX_TO_IMVEC4(0xFFFFFF, 0xFF), 0.2f);
+	ImVec4 option_highlight_selected_col = ImLerp(option_highlight_col, HEX_TO_IMVEC4(0xFFFFFF, 0xFF), 0.2f);
+
+	ImVec4 popup_col = HEX_TO_IMVEC4(0xFFEB99, 0xFF);
+	ImVec4 popup_text_col = HEX_TO_IMVEC4(0xC00042, 0xFF);
+	ImVec4 popup_border_col = HEX_TO_IMVEC4(0x9E011F, 0xFF);
+	*/
+
+
+
+//Positions and Sizes
 	const ImVec2 display_size(ImVec2(g_gs_device->GetWindowWidth(), g_gs_device->GetWindowHeight()));
 	const ImVec2 game_size(display_size - ImVec2(g_layout_padding_left * 2.0f, g_layout_padding_top * 2.0f));
+	
+	ImVec2 window_padding(LayoutScale(20.0f), LayoutScale(15.0f));
+	ImVec2 folder_padding(LayoutScale(20.0f), LayoutScale(LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY + LAYOUT_MENU_BUTTON_Y_PADDING * 3.0f + 2.0f));
+	float subtitle_padding_x = LayoutScale(40.0f);
 
-	ImGuiIO& io = ImGui::GetIO();
-	ImVec2 heading_size =
-		ImVec2(game_size.x, LayoutScale(LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY + LAYOUT_MENU_BUTTON_Y_PADDING * 2.0f + 2.0f));
+	//subtitle = bottom bubble with setting summaries
+	ImVec2 subtitle_size = ImVec2(game_size.x - (window_padding.x + subtitle_padding_x) * 2, large_font_height * 3.2f );//LayoutScale(LAYOUT_MENU_BUTTON_HEIGHT + LAYOUT_MENU_BUTTON_Y_PADDING * 4.0f + 2.0f));
+	ImVec2 subtitle_pos = ImVec2(window_padding.x + subtitle_padding_x, game_size.y - window_padding.y - subtitle_size.y);
 
-	const float bg_alpha = VMManager::HasValidVM() ? 0.90f : 1.0f;
+	//heading = title text tab
+	ImVec2 heading_pos(window_padding.x, window_padding.y);
+	ImVec2 heading_size(game_size.x - window_padding.x * 2, heading_text_height + style.FramePadding.y * 2);
+		//ImVec2(game_size.x, heading_text_height + LayoutScale(LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY * 2 + LAYOUT_MENU_BUTTON_Y_PADDING * 4.0f + 4.0f));
+
+	//navbar = navigation buttons
+	ImVec2 navbar_pos(heading_pos.x, heading_pos.y + heading_size.y);
+	ImVec2 navbar_size(heading_size.x, folder_padding.y);
+
+	//footer = empty navbar at bottom
+	ImVec2 folder_footer_size(navbar_size.x, navbar_size.y);
+	ImVec2 folder_footer_pos(navbar_pos.x, subtitle_pos.y - folder_footer_size.y * (1 - subtitle_overlap_percent));
+	
+	//content = settings page
+	ImVec2 content_pos(navbar_pos.x + folder_padding.x, navbar_pos.y + navbar_size.y);
+	ImVec2 content_size(navbar_size.x - folder_padding.x * 2, game_size.y - window_padding.y * 2 - heading_size.y - navbar_size.y * 2 - subtitle_size.y * (1 - subtitle_overlap_percent));
 
 
+	ImVec2 heading_text_size;
+	float heading_text_padding_x;
+	
 	//draw bottom subtitle description
-	ImVec2 subtitle_size = ImVec2(game_size.x, LayoutScale(LAYOUT_MENU_BUTTON_HEIGHT + LAYOUT_MENU_BUTTON_Y_PADDING * 4.0f + 2.0f));
-	const ImGuiStyle& style = ImGui::GetStyle();
-	if (BeginFullscreenWindow(ImVec2(0.0f + style.FrameBorderSize + style.ItemSpacing.x, game_size.y - subtitle_size.y + style.FrameBorderSize + style.ItemSpacing.y), ImVec2(game_size.x - (style.FrameBorderSize + style.ItemSpacing.x) * 2 + LayoutScale(1.0f), subtitle_size.y - (style.FrameBorderSize + style.ItemSpacing.y) * 2), "settings_subtitle",
+	if (BeginFullscreenWindow(subtitle_pos, subtitle_size, "settings_subtitle",
 			ImVec4(0.0f, 0.0f, 0.0f, bg_alpha), 30.0f))
 	{
 		//HEX_TO_IMVEC4(0x000000, bg_alpha)
@@ -2661,34 +2727,29 @@ void FullscreenUI::DrawSettingsWindow()
 			const ImU32 text_color = IM_COL32(UIBackgroundTextColor.x * 255, UIBackgroundTextColor.y * 255, UIBackgroundTextColor.z * 255, 255);
 			ImVec2 text_size(
 				g_large_font->CalcTextSizeA(g_large_font->FontSize, std::numeric_limits<float>::max(), -1.0f, ImGuiFullscreen::current_summary.data()));
-			/* std::string display_text = ImGuiFullscreen::current_summary.data();
-			display_text = display_text + "lol"
-			
-			while (text_size.x > game_size.x - (style.FrameBorderSize + style.ItemSpacing.x) * 2)
+
+			ImVec2 text_pos(0.0f + (game_size.x - text_size.x) / 2, subtitle_pos.y + subtitle_size.y / 2 - (text_size.y * 2) / 3);
+			if (text_size.x > subtitle_size.x - ( LayoutScale(40.0f) * 2))
 			{
-				ImGuiFullscreen::current_summary.data()
-				text_size = ImVec2(g_large_font->CalcTextSizeA(g_large_font->FontSize, std::numeric_limits<float>::max(), -1.0f, ImGuiFullscreen::current_summary.data()));
-			}
-			*/
-			ImVec2 text_pos(0.0f + (game_size.x - text_size.x) / 2, game_size.y - subtitle_size.y / 2 - (text_size.y * 2) / 3);
-			if (text_size.x > game_size.x - (style.FrameBorderSize + style.ItemSpacing.x) * 4 - LayoutScale(40.0f) * 2)
-			{
-				text_pos = ImVec2(0.0f + (style.FrameBorderSize + style.ItemSpacing.x) * 2 + LayoutScale(40.0f), game_size.y - subtitle_size.y / 2 - text_size.y);
+				//if more than 2 lines
+				if (text_size.x > 2 * ( subtitle_size.x - (LayoutScale(40.0f) * 2 )) )
+				{
+					text_pos = ImVec2(subtitle_pos.x + LayoutScale(40.0f), subtitle_pos.y + LayoutScale(5.0f));
+				}
+				else
+					text_pos = ImVec2(subtitle_pos.x + LayoutScale(40.0f), subtitle_pos.y + subtitle_size.y / 2 - text_size.y);
 			}
 
 			//DrawShadowedText(dl, g_medium_font, ImVec2(0.0f, game_size.y - heading_size.y - subtitle_size.y), text_color, ImGuiFullscreen::current_summary.data());
-			dl->AddText(g_large_font, g_large_font->FontSize, text_pos + ImVec2(g_layout_padding_left, g_layout_padding_top), text_color, ImGuiFullscreen::current_summary.data(), nullptr, game_size.x - (style.FrameBorderSize + style.ItemSpacing.x) * 4 - LayoutScale(40.0f) * 2);
+			dl->AddText(g_large_font, g_large_font->FontSize, text_pos + ImVec2(g_layout_padding_left, g_layout_padding_top), text_color, ImGuiFullscreen::current_summary.data(), nullptr, subtitle_size.x - ( LayoutScale(40.0f) * 2));
 			ImGuiFullscreen::current_summary = "";
-			//draw summary in subtitle area instead
-			//const ImVec2 display_size(ImVec2(g_gs_device->GetWindowWidth(), g_gs_device->GetWindowHeight()));
-			//const ImVec2 game_size(display_size - ImVec2(g_layout_padding_left * 2.0f, g_layout_padding_top * 2.0f));
-			//const ImRect summary_bb(ImVec2(bb.Min.x, game_size.y + g_layout_padding_top - LAYOUT_MENU_BUTTON_HEIGHT), ImVec2(bb.Max.x, game_size.y + g_layout_padding_top));
 		}
 	}
 	EndFullscreenWindow();
 
+	//draw navbar buttons and tab text
 	if (BeginFullscreenWindow(
-			ImVec2(0.0f, 0.0f), heading_size, "settings_category", ImVec4(UIPrimaryColor.x, UIPrimaryColor.y, UIPrimaryColor.z, bg_alpha)))
+			heading_pos, heading_size + navbar_size, "settings_category", ImVec4(UIPrimaryColor.x, UIPrimaryColor.y, UIPrimaryColor.z, 0.0f), 30.0f))
 	{
 		static constexpr float ITEM_WIDTH = 25.0f;
 
@@ -2740,20 +2801,32 @@ void FullscreenUI::DrawSettingsWindow()
 				s_settings_page = pages[index];
 			}
 		}
+		g_large_font->Scale = 1.25f;
+		heading_text_size = ImVec2(g_large_font->Scale, g_large_font->Scale) * g_large_font->CalcTextSizeA(g_large_font->FontSize, std::numeric_limits<float>::max(), -1.0f, titles[static_cast<u32>(pages[index])]);
+		ImVec2 max_text_size = ImVec2(g_large_font->Scale, g_large_font->Scale) * g_large_font->CalcTextSizeA(g_large_font->FontSize, std::numeric_limits<float>::max(), -1.0f, "Achievements Settings");
+		heading_text_padding_x = (max_text_size.x / 6) * (max_text_size.x / heading_text_size.x);
 
-		if (NavButton(ICON_FA_BACKWARD, true, true))
-			ReturnToMainWindow();
-
+		ImGui::SetCursorPosX(style.FrameBorderSize + style.FramePadding.x + heading_text_padding_x);
 		if (s_game_settings_entry)
 			NavTitle(fmt::format("{} ({})", titles[static_cast<u32>(pages[index])], s_game_settings_entry->title).c_str());
 		else
 			NavTitle(titles[static_cast<u32>(pages[index])]);
+		g_large_font->Scale = 1.0f;
+		ImGui::SetCursorPosY(heading_size.y + bevel_thickness); //navbar_pos.y - heading_pos.y);
+		ImGui::SetCursorPosX(navbar_pos.x + navbar_size.x - folder_padding.x - (style.FramePadding.x * 2.0f + style.FrameBorderSize + style.ItemSpacing.x + LayoutScale(ITEM_WIDTH)) - style.FramePadding.x);
+		//ImGui::SetCursorPosX(game_size.x - window_padding.x - style.FrameBorderSize - LayoutScale(ITEM_WIDTH));
+		//RightAlignNavButtons(1, ITEM_WIDTH, LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY);
 
-		RightAlignNavButtons(count, ITEM_WIDTH, LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY);
+		if (NavButton(ICON_FA_BACKWARD, true, true, ITEM_WIDTH, navbar_size.y - style.FramePadding.y * 2.0f - bevel_thickness * 2.0f ))//LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY))
+			ReturnToMainWindow();
+
+		//RightAlignNavButtons(count, ITEM_WIDTH, LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY);
+		ImGui::SetCursorPosX(0.0f + style.FramePadding.x + style.FrameBorderSize);
 
 		for (u32 i = 0; i < count; i++)
 		{
-			if (NavButton(icons[i], i == index, true, ITEM_WIDTH, LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY))
+			ImGui::SetCursorPosY(heading_size.y + bevel_thickness); //(navbar_pos.y - heading_pos.y);
+			if (NavButton(icons[i], i == index, true, ITEM_WIDTH, navbar_size.y - style.FramePadding.y * 2.0f - bevel_thickness * 2.0f )) //LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY))
 			{
 				s_settings_page = pages[i];
 			}
@@ -2764,9 +2837,22 @@ void FullscreenUI::DrawSettingsWindow()
 
 	EndFullscreenWindow();
 
+	
+	ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, LayoutScale(20.0f));
+	ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, LayoutScale(30.0f));
+	
+	ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, HEX_TO_IMVEC4(0x000000, 0x00));
+	ImGui::PushStyleColor(ImGuiCol_Text, text_col);
+	ImGui::PushStyleColor(ImGuiCol_TextDisabled, text_disabled_col);
 
-	if (BeginFullscreenWindow(ImVec2(0.0f, heading_size.y), ImVec2(game_size.x, game_size.y - heading_size.y - subtitle_size.y), "settings_parent",
-			ImVec4(UIBackgroundColor.x, UIBackgroundColor.y, UIBackgroundColor.z, bg_alpha)))
+	//using tab cols for text outline col as they are unused
+	ImGui::PushStyleColor(ImGuiCol_Tab, text_outline_col);
+	ImGui::PushStyleColor(ImGuiCol_TabActive, text_disabled_col);
+	ImGui::PushStyleColor(ImGuiCol_TabHovered, text_outline_disabled_col);
+
+	//inner content
+	if (BeginFullscreenWindow(ImVec2(content_pos.x + folder_padding.x* 0.5f, content_pos.y + 1.0f), ImVec2(content_size.x - folder_padding.x * 1.0f, content_size.y + 1.0f), "settings_parent",
+			ImVec4(UIBackgroundColor.x, UIBackgroundColor.y, UIBackgroundColor.z, 0.0f)))
 	{
 		ResetFocusHere();
 
@@ -2843,11 +2929,165 @@ void FullscreenUI::DrawSettingsWindow()
 			default:
 				break;
 		}
+
 	}
 
 	EndFullscreenWindow();
-}
+	ImGui::PopStyleColor(6);
+	ImGui::PopStyleVar(2);
 
+	//draw folder graphics
+	if (BeginFullscreenWindow(ImVec2(0.0f, 0.0f), ImVec2(game_size.x, game_size.y), "folder_graphics",
+			ImVec4(1.0f, 0.686f, 0.082f, 0.0f), 30.0f))
+	{ 
+	
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+
+	//tab
+
+		ImVec2 tab_pos(heading_pos.x, heading_pos.y);
+		ImVec2 tab_size(heading_text_size.x + heading_text_padding_x * 2 + (style.FrameBorderSize + style.FramePadding.x) * 8, heading_size.y + navbar_size.y);
+
+		//filled area is drawn later to overlap folder
+		
+		//bevel
+		int vert_start_idx = dl->VtxBuffer.Size;
+		
+		dl->AddRect(tab_pos + ImVec2(bevel_thickness / 2, bevel_thickness /2) +
+							  ImVec2(g_layout_padding_left, g_layout_padding_top),
+			tab_pos + tab_size - ImVec2(bevel_thickness / 2, bevel_thickness / 2) + ImVec2(g_layout_padding_left, g_layout_padding_top),
+			IM_COL32(UIPrimaryColor.x * 255, UIPrimaryColor.y * 255, UIPrimaryColor.z * 255, 255),
+			LayoutScale(22.0f), ImDrawFlags_None, bevel_thickness);
+		int vert_end_idx = dl->VtxBuffer.Size;
+
+		//bevel gradient
+		ImVec4 grad = CalcGradientStartEnd(tab_size, LayoutScale(80.0f));
+		ImVec2 grad_start = tab_pos + ImVec2(grad.x, grad.y);
+		ImVec2 grad_end = tab_pos + ImVec2(grad.z, grad.w);
+		
+		ImGui::ShadeVertsLinearColorGradientKeepAlpha(dl, vert_start_idx, vert_end_idx,
+			grad_start + ImVec2(g_layout_padding_left, g_layout_padding_top),
+			grad_end + ImVec2(g_layout_padding_left, g_layout_padding_top),
+			IM_COL32(folder_highlight_col.x * 255, folder_highlight_col.y * 255, folder_highlight_col.z * 255, 255),
+			IM_COL32(folder_shadow_col.x * 255, folder_shadow_col.y * 255, folder_shadow_col.z * 255, 255));
+
+	//outer folder area
+		ImVec2 rect_pos(navbar_pos.x, navbar_pos.y);
+		ImVec2 rect_size(navbar_size.x, navbar_size.y * 2 + content_size.y);
+		ImVec4 rect_col(folder_col);
+
+		//filled area
+		dl->AddRectFilled(rect_pos +
+							  ImVec2(g_layout_padding_left, g_layout_padding_top),
+			rect_pos + rect_size +
+				ImVec2(g_layout_padding_left, g_layout_padding_top),
+			IM_COL32(rect_col.x * 255, rect_col.y * 255, rect_col.z * 255, 255),
+			LayoutScale(30.0f));
+
+		//bevel
+		vert_start_idx = dl->VtxBuffer.Size;
+		dl->AddRect(rect_pos + ImVec2(bevel_thickness / 2, bevel_thickness / 2) +
+						ImVec2(g_layout_padding_left, g_layout_padding_top),
+			rect_pos + rect_size - ImVec2(bevel_thickness / 2, bevel_thickness / 2) + ImVec2(g_layout_padding_left, g_layout_padding_top),
+			IM_COL32(UIPrimaryColor.x * 255, UIPrimaryColor.y * 255, UIPrimaryColor.z * 255, 255),
+			LayoutScale(22.0f), ImDrawFlags_None, bevel_thickness);
+		vert_end_idx = dl->VtxBuffer.Size;
+
+		//bevel gradient
+		ImGui::ShadeVertsLinearColorGradientKeepAlpha(dl, vert_start_idx, vert_end_idx,
+			ImVec2(rect_pos.x + rect_size.x * 0.65f, rect_pos.y + rect_size.y * 0.3f) + ImVec2(g_layout_padding_left, g_layout_padding_top),
+			ImVec2(rect_pos.x + rect_size.x * 0.9f, rect_pos.y + rect_size.y) + ImVec2(g_layout_padding_left, g_layout_padding_top),
+			IM_COL32(folder_highlight_col.x * 255, folder_highlight_col.y * 255, folder_highlight_col.z * 255, 255),
+			IM_COL32(folder_shadow_col.x * 255, folder_shadow_col.y * 255, folder_shadow_col.z * 255, 255));
+		
+		//tab filled area (drawn now to overlap and look connected to folder)
+		dl->AddRectFilled(tab_pos + ImVec2(bevel_thickness, bevel_thickness) +
+							  ImVec2(g_layout_padding_left, g_layout_padding_top),
+			tab_pos + tab_size - ImVec2(bevel_thickness, bevel_thickness) + ImVec2(g_layout_padding_left, g_layout_padding_top),
+			IM_COL32(UIPrimaryColor.x * 255, UIPrimaryColor.y * 255, UIPrimaryColor.z * 255, 255),
+			LayoutScale(18.0f));
+		
+
+	//inner content area
+		rect_pos = ImVec2(content_pos.x, content_pos.y);
+		rect_size = ImVec2(content_size.x, content_size.y);
+		rect_col = ImVec4(inner_content_col);
+
+		vert_start_idx = dl->VtxBuffer.Size;
+		//folder_highlight_col = HEX_TO_IMVEC4(0xAB4A0B, 0xFF);
+		//folder_shadow_col = HEX_TO_IMVEC4(0xFF7E10, 0xFF);
+		bevel_thickness = LayoutScale(10.0f);
+
+		//bevel
+		dl->AddRect(rect_pos + ImVec2(bevel_thickness / 6, 0.0f) +
+						ImVec2(g_layout_padding_left, g_layout_padding_top),
+			rect_pos + rect_size - ImVec2(bevel_thickness * 1/6, 0.0f) + ImVec2(g_layout_padding_left, g_layout_padding_top),
+			IM_COL32(UIPrimaryColor.x * 255, UIPrimaryColor.y * 255, UIPrimaryColor.z * 255, 255),
+			LayoutScale(22.0f), ImDrawFlags_None, bevel_thickness);
+		vert_end_idx = dl->VtxBuffer.Size;
+
+		//bevel gradient
+	    grad = CalcGradientStartEnd(rect_size, LayoutScale(80.0f));
+		grad_start = rect_pos + ImVec2(grad.x, grad.y);
+		grad_end = rect_pos + ImVec2(grad.z, grad.w);
+
+		ImGui::ShadeVertsLinearColorGradientKeepAlpha(dl, vert_start_idx, vert_end_idx,
+			grad_start + ImVec2(g_layout_padding_left, g_layout_padding_top),
+			grad_end + ImVec2(g_layout_padding_left, g_layout_padding_top),
+			IM_COL32(folder_shadow_col.x * 255, folder_shadow_col.y * 255, folder_shadow_col.z * 255, 255),
+			IM_COL32(folder_highlight_col.x * 255, folder_highlight_col.y * 255, folder_highlight_col.z * 255, 255));
+
+		//area
+		dl->AddRectFilled(rect_pos +
+							  ImVec2(g_layout_padding_left, g_layout_padding_top),
+			rect_pos + rect_size +
+				ImVec2(g_layout_padding_left, g_layout_padding_top),
+			IM_COL32(rect_col.x * 255, rect_col.y * 255, rect_col.z * 255, 255),
+			LayoutScale(30.0f));
+
+
+		/*
+		//inner content area highlight
+		rect_pos = ImVec2(ImVec2(0.0f + window_padding.x + folder_border.x + style.FrameBorderSize, heading_size.y + style.FrameBorderSize + style.FramePadding.x));
+		rect_size = ImVec2(game_size.x - (window_padding.x + folder_border.x) * 2 + style.FrameBorderSize, game_size.y - heading_size.y - subtitle_size.y * 0.65 - folder_border.y + style.FrameBorderSize + style.FramePadding.x);
+		rect_col = ImVec4(HEX_TO_IMVEC4(0xFFAF15, 0xff));
+		
+		int vert_start_idx = dl->VtxBuffer.Size;
+		dl->AddRectFilled(rect_pos +
+							  ImVec2(g_layout_padding_left, g_layout_padding_top),
+			rect_pos + rect_size + 
+			ImVec2(g_layout_padding_left, g_layout_padding_top),
+			IM_COL32(rect_col.x * 255, rect_col.y * 255, rect_col.z * 255, 0.5 * 255),
+			LayoutScale(30.0f));
+		int vert_end_idx = dl->VtxBuffer.Size;
+		ImGui::ShadeVertsLinearColorGradientKeepAlpha(dl, vert_start_idx, vert_end_idx, ImVec2(rect_pos.x, rect_pos.y), ImVec2(rect_pos.x, rect_pos.y + rect_size.y), IM_COL32(1 * 255, 1 * 255, 1 * 255, 255), IM_COL32(1 * 255, 1 * 255, 1 * 255, 1));
+		*/
+
+
+
+	}
+	EndFullscreenWindow();
+}
+ImVec4 FullscreenUI::CalcGradientStartEnd(ImVec2 rect_size, float gradient_thickness)//, float angle)
+{
+	float rect_center_x = rect_size.x / 2;
+	float rect_center_y = rect_size.y / 2;
+	float rect_hyp = std::sqrt(rect_size.x * rect_size.x + rect_size.y * rect_size.y);
+	//rect_hyp = rect_hyp / 40 * angle;
+	float gradient_dir_x = rect_size.x / rect_hyp;
+	float gradient_dir_y = rect_size.y / rect_hyp;
+
+	return ImVec4(
+		//start point
+		rect_center_x - 0.5 * gradient_thickness * gradient_dir_y,
+		rect_center_y - 0.5 * gradient_thickness * gradient_dir_x,
+
+		//end point
+		rect_center_x + 0.5 * gradient_thickness * gradient_dir_y,
+		rect_center_y + 0.5 * gradient_thickness * gradient_dir_x
+	);
+
+}
 void FullscreenUI::DrawSummarySettingsPage()
 {
 	SettingsInterface* bsi = GetEditingSettingsInterface();

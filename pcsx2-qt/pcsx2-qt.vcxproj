@@ -89,6 +89,7 @@
     <ClCompile Include="Settings\GameCheatSettingsWidget.cpp" />
     <ClCompile Include="Settings\GamePatchSettingsWidget.cpp" />
     <ClCompile Include="Settings\MemoryCardConvertWorker.cpp" />
+    <ClCompile Include="Settings\QuickSettingsWidget.cpp" />
     <ClCompile Include="SetupWizardDialog.cpp" />
     <ClCompile Include="Themes.cpp" />
     <ClCompile Include="Tools\InputRecording\InputRecordingViewer.cpp" />
@@ -142,6 +143,7 @@
     <ClCompile Include="QtKeyCodes.cpp" />
     <ClCompile Include="QtUtils.cpp" />
     <ClCompile Include="Translations.cpp" />
+    <ClCompile Include="x64\Debug\Settings\moc_QuickSettingsWidget.cpp" />
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="SetupWizardDialog.h" />
@@ -193,6 +195,7 @@
     <QtMoc Include="Settings\ControllerBindingWidgets.h" />
     <QtMoc Include="Settings\ControllerGlobalSettingsWidget.h" />
     <ClInclude Include="Settings\MemoryCardConvertWorker.h" />
+    <QtMoc Include="Settings\QuickSettingsWidget.h" />
     <ClInclude Include="SettingWidgetBinder.h" />
     <QtMoc Include="QtHost.h" />
     <ClInclude Include="PrecompiledHeader.h" />
@@ -374,6 +377,9 @@
     </QtUi>
   </ItemGroup>
   <ItemGroup>
+    <QtUi Include="Settings\QuickSettingsWidget.ui">
+      <FileType>Document</FileType>
+    </QtUi>
     <QtUi Include="Settings\USBBindingWidget_GunCon2.ui">
       <FileType>Document</FileType>
     </QtUi>

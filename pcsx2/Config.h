@@ -170,6 +170,15 @@ enum GamefixId
 // TODO - config - not a fan of the excessive use of enums and macros to make them work
 // a proper object would likely make more sense (if possible).
 
+enum class PerfPreset
+{
+	MaxPerf,
+	Balanced,
+	MaxQuality,
+	Custom,
+	MaxCount,
+};
+
 enum class SpeedHack
 {
 	MVUFlag,
@@ -1070,7 +1079,12 @@ struct Pcsx2Config
 			return !OpEqu(bitset);
 		}
 	};
-
+	// ------------------------------------------------------------------------
+	struct QuickOptions
+	{
+		PerfPreset CurrentPerformancePreset = PerfPreset::MaxQuality;
+		//AspectRatioType CurrentAspectRatio = AspectRatioType::RAuto4_3_3_2;
+	};
 	// ------------------------------------------------------------------------
 	struct SpeedhackOptions
 	{
@@ -1282,6 +1296,7 @@ struct Pcsx2Config
 
 	CpuOptions Cpu;
 	GSOptions GS;
+	QuickOptions Quick;
 	SpeedhackOptions Speedhacks;
 	GamefixOptions Gamefixes;
 	ProfilerOptions Profiler;
@@ -1305,6 +1320,8 @@ struct Pcsx2Config
 	std::string GzipIsoIndexTemplate; // for quick-access index with gzipped ISO
 
 	int PINESlot;
+
+	int performance_preset = 0; //default preset (0 = custom)
 
 	// Set at runtime, not loaded from config.
 	std::string CurrentBlockdump;

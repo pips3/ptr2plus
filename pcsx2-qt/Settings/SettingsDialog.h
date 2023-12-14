@@ -29,6 +29,7 @@ namespace GameList
 struct Entry;
 }
 
+class QuickSettingsWidget;
 class InterfaceSettingsWidget;
 class GameListSettingsWidget;
 class EmulationSettingsWidget;
@@ -61,6 +62,7 @@ public:
 	__fi const std::string& getSerial() const { return m_serial; }
 	__fi u32 getDiscCRC() const { return m_disc_crc; }
 
+	__fi QuickSettingsWidget* getQuickSettingsWidget() const { return m_quick_settings; }
 	__fi InterfaceSettingsWidget* getInterfaceSettingsWidget() const { return m_interface_settings; }
 	__fi GameListSettingsWidget* getGameListSettingsWidget() const { return m_game_list_settings; }
 	__fi BIOSSettingsWidget* getBIOSSettingsWidget() const { return m_bios_settings; }
@@ -113,7 +115,7 @@ protected:
 private:
 	enum : u32
 	{
-		MAX_SETTINGS_WIDGETS = 13
+		MAX_SETTINGS_WIDGETS = 14
 	};
 
 	void setupUi(const GameList::Entry* game);
@@ -124,6 +126,7 @@ private:
 
 	Ui::SettingsDialog m_ui;
 
+	QuickSettingsWidget* m_quick_settings = nullptr;
 	InterfaceSettingsWidget* m_interface_settings = nullptr;
 	GameListSettingsWidget* m_game_list_settings = nullptr;
 	BIOSSettingsWidget* m_bios_settings = nullptr;

@@ -34,6 +34,7 @@
 #include "Settings/GraphicsSettingsWidget.h"
 #include "Settings/HotkeySettingsWidget.h"
 #include "Settings/InterfaceSettingsWidget.h"
+#include "Settings/QuickSettingsWidget.h"
 #include "Settings/MemoryCardSettingsWidget.h"
 #include "SettingsDialog.h"
 
@@ -98,6 +99,13 @@ void SettingsDialog::setupUi(const GameList::Entry* game)
 
 		m_ui.restoreDefaultsButton->setVisible(false);
 	}
+
+		
+
+	addWidget(m_quick_settings = new QuickSettingsWidget(this, m_ui.settingsContainer), tr("Quick Settings"),
+		QStringLiteral("tools-line"),
+		tr("<strong>Quick Settings</strong><hr>This section allows you to quickly adjust important settings.<br><br>Mouse over an option "
+		   "for additional information."));
 
 	addWidget(m_interface_settings = new InterfaceSettingsWidget(this, m_ui.settingsContainer), tr("Interface"),
 		QStringLiteral("interface-line"),

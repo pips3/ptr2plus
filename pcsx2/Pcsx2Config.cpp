@@ -908,7 +908,6 @@ void Pcsx2Config::GSOptions::MaskUpscalingHacks()
 {
 	if (UpscaleMultiplier > 1.0f)
 		return;
-
 	UserHacks_AlignSpriteX = false;
 	UserHacks_MergePPSprite = false;
 	UserHacks_WildHack = false;
@@ -1397,7 +1396,7 @@ Pcsx2Config::Pcsx2Config()
 #ifdef _WIN32
 	McdCompressNTFS = true;
 #endif
-
+	performance_preset = 0;
 	WarnAboutUnsafeSettings = true;
 
 	// To be moved to FileMemoryCard pluign (someday)
@@ -1479,7 +1478,7 @@ void Pcsx2Config::LoadSave(SettingsWrapper& wrap)
 #ifdef _WIN32
 	SettingsWrapEntry(McdCompressNTFS);
 #endif
-
+	SettingsWrapEntry(performance_preset);
 	if (wrap.IsLoading())
 	{
 		CurrentAspectRatio = GS.AspectRatio;

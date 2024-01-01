@@ -177,6 +177,8 @@ namespace FullscreenUI
 
 	enum class SettingsPage
 	{
+		Mods,
+		Textures,
 		Quick,
 		Summary,
 		Interface,
@@ -307,7 +309,7 @@ namespace FullscreenUI
 	static void DrawModsPage();
 	static void DrawTexturePacksPage();
 
-	static void DrawSettingsWindow(bool PTR2Settings);
+	static void DrawSettingsWindow(MainWindowType window_type);
 	static void DrawQuickSettingsPage();
 	static void DrawSummarySettingsPage();
 	static void DrawInterfaceSettingsPage();
@@ -852,13 +854,13 @@ void FullscreenUI::Render()
 			DrawGameListWindow();
 			break;
 		case MainWindowType::PTR2Settings:
-			DrawSettingsWindow(true);
+			DrawSettingsWindow(s_current_main_window);
 			break;
 		case MainWindowType::Settings:
-			DrawSettingsWindow(false);
+			DrawSettingsWindow(s_current_main_window);
 			break;
 		case MainWindowType::ModMenu:
-			DrawModMenuWindow();
+			DrawSettingsWindow(s_current_main_window);
 			break;
 		case MainWindowType::PauseMenu:
 			DrawPauseMenu(s_current_main_window);
@@ -2516,7 +2518,7 @@ void FullscreenUI::SwitchToModMenu()
 	PopulateGraphicsAdapterList();
 
 	s_current_main_window = MainWindowType::ModMenu;
-	s_settings_page = SettingsPage::Interface;
+	s_settings_page = SettingsPage::Mods;
 }
 
 void FullscreenUI::SwitchToSettings()
@@ -2790,7 +2792,7 @@ void FullscreenUI::DrawTexturePacksPage()
 {
 }
 
-void FullscreenUI::DrawSettingsWindow(bool PTR2Settings)
+void FullscreenUI::DrawSettingsWindow(MainWindowType menu_type)
 {
 
 	const ImGuiStyle& style = ImGui::GetStyle();
@@ -2913,6 +2915,7 @@ void FullscreenUI::DrawSettingsWindow(bool PTR2Settings)
 		//	ICON_FA_FROWN, ICON_FA_MAGIC, ICON_FA_HEADPHONES, ICON_FA_SD_CARD, ICON_FA_GAMEPAD, ICON_FA_BAN};
 		static constexpr const char* ptr2_icons[] = {ICON_FA_SLIDERS_H, ICON_FA_PLUS, ICON_FA_MAGIC,
 			ICON_FA_GAMEPAD};
+		static constexpr const char* mods_icons[] = {ICON_FA_SLIDERS_H, ICON_FA_MAGIC};
 
 		static constexpr SettingsPage pcsx2_settings_pages[] = {SettingsPage::Interface, SettingsPage::BIOS,
 			SettingsPage::Emulation, SettingsPage::Graphics, SettingsPage::Audio, SettingsPage::MemoryCard,
@@ -2925,7 +2928,10 @@ void FullscreenUI::DrawSettingsWindow(bool PTR2Settings)
 		static constexpr SettingsPage ptr2_pages[] = { SettingsPage::Quick,
 			SettingsPage::Patches, SettingsPage::Cheats, SettingsPage::Controller};
 
-		static constexpr const char* titles[] = {"Quick Settings", "Summary", "Interface Settings", "BIOS Settings", "Emulation Settings",
+		static constexpr SettingsPage mods_pages[] = {SettingsPage::Mods,
+			SettingsPage::Textures};
+
+		static constexpr const char* titles[] = {"Mods","Texture Packs","Quick Settings", "Summary", "Interface Settings", "BIOS Settings", "Emulation Settings",
 			"Graphics Settings", "Audio Settings", "Memory Card Settings", "Controller Settings", "Hotkey Settings",
 			"Achievements Settings", "Folder Settings", "Advanced Settings", "Patches", "Cheats", "Game Fixes"};
 
@@ -2934,9 +2940,30 @@ void FullscreenUI::DrawSettingsWindow(bool PTR2Settings)
 
 		//const u32 count = game_settings ? (ShouldShowAdvancedSettings(bsi) ? std::size(per_game_pages) : (std::size(per_game_pages) - 1)) :
 		//								  std::size(pcsx2_settings_pages);
-		const u32 count = PTR2Settings ? std::size(ptr2_pages) : std::size(pcsx2_settings_pages);
-		const char* const* icons = PTR2Settings ? ptr2_icons : pcsx2_settings_icons;
-		const SettingsPage* pages = PTR2Settings ? ptr2_pages : pcsx2_settings_pages;
+		u32 count;
+		const char* const* icons;
+		const SettingsPage* pages;
+		switch (menu_type)
+		{
+			case MainWindowType::PTR2Settings:
+				count = std::size(ptr2_pages);
+				icons = ptr2_icons;
+				pages = ptr2_pages;
+				break;
+			case MainWindowType::Settings:
+				count = std::size(pcsx2_settings_pages);
+				icons = pcsx2_settings_icons;
+				pages = pcsx2_settings_pages;
+				break;
+			case MainWindowType::ModMenu:
+				count = std::size(mods_pages);
+				icons = mods_icons;
+				pages = mods_pages;
+				break;
+		}
+		//const u32 count = PTR2Settings ? std::size(ptr2_pages) : std::size(pcsx2_settings_pages);
+		//const char* const* icons = PTR2Settings ? ptr2_icons : pcsx2_settings_icons;
+		//const SettingsPage* pages = PTR2Settings ? ptr2_pages : pcsx2_settings_pages;
 		u32 index = 0;
 		for (u32 i = 0; i < count; i++)
 		{
@@ -3032,6 +3059,13 @@ void FullscreenUI::DrawSettingsWindow(bool PTR2Settings)
 
 		switch (s_settings_page)
 		{
+			case SettingsPage::Mods:
+				DrawModsPage();
+				break;
+			case SettingsPage::Textures:
+				DrawTexturePacksPage();
+				break;
+
 			case SettingsPage::Quick:
 				DrawQuickSettingsPage();
 				break;

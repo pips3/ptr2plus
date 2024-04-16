@@ -1433,6 +1433,9 @@
     <ClCompile Include="SIO\Pad\Pad.cpp">
       <Filter>System\Ps2\Iop\SIO\PAD</Filter>
     </ClCompile>
+    <ClCompile Include="mods\P2mTools.cpp">
+      <Filter>Misc</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Patch.h">
@@ -2369,6 +2372,7 @@
     <ClInclude Include="SIO\Pad\Pad.h">
       <Filter>System\Ps2\Iop\SIO\PAD</Filter>
     </ClInclude>
+    <ClInclude Include="mods\P2mTools.h" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuildStep Include="rdebug\deci2.h">

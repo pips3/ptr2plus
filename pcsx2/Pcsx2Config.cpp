@@ -142,6 +142,7 @@ namespace EmuFolders
 	std::string AppRoot;
 	std::string DataRoot;
 	std::string Settings;
+	std::string PTR2Mods;
 	std::string Bios;
 	std::string Snapshots;
 	std::string Savestates;
@@ -1690,6 +1691,7 @@ void EmuFolders::SetDataDirectory()
 void EmuFolders::SetDefaults(SettingsInterface& si)
 {
 	si.SetStringValue("Folders", "Bios", "bios");
+	si.SetStringValue("Folders", "PTR2Mods", "mods");
 	si.SetStringValue("Folders", "Snapshots", "snaps");
 	si.SetStringValue("Folders", "Savestates", "sstates");
 	si.SetStringValue("Folders", "MemoryCards", "memcards");
@@ -1712,6 +1714,7 @@ static std::string LoadPathFromSettings(SettingsInterface& si, const std::string
 
 void EmuFolders::LoadConfig(SettingsInterface& si)
 {
+	PTR2Mods = LoadPathFromSettings(si, DataRoot, "PTR2Mods", "mods");
 	Bios = LoadPathFromSettings(si, DataRoot, "Bios", "bios");
 	Snapshots = LoadPathFromSettings(si, DataRoot, "Snapshots", "snaps");
 	Savestates = LoadPathFromSettings(si, DataRoot, "Savestates", "sstates");
@@ -1726,6 +1729,7 @@ void EmuFolders::LoadConfig(SettingsInterface& si)
 	InputProfiles = LoadPathFromSettings(si, DataRoot, "InputProfiles", "inputprofiles");
 	Videos = LoadPathFromSettings(si, DataRoot, "Videos", "videos");
 
+	Console.WriteLn("PTR2Mods Directory: %s", PTR2Mods.c_str());
 	Console.WriteLn("BIOS Directory: %s", Bios.c_str());
 	Console.WriteLn("Snapshots Directory: %s", Snapshots.c_str());
 	Console.WriteLn("Savestates Directory: %s", Savestates.c_str());
@@ -1744,6 +1748,7 @@ void EmuFolders::LoadConfig(SettingsInterface& si)
 bool EmuFolders::EnsureFoldersExist()
 {
 	bool result = FileSystem::CreateDirectoryPath(Bios.c_str(), false);
+	result = FileSystem::CreateDirectoryPath(PTR2Mods.c_str(), false) && result;
 	result = FileSystem::CreateDirectoryPath(Settings.c_str(), false) && result;
 	result = FileSystem::CreateDirectoryPath(Snapshots.c_str(), false) && result;
 	result = FileSystem::CreateDirectoryPath(Savestates.c_str(), false) && result;

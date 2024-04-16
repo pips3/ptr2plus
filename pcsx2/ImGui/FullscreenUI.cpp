@@ -33,6 +33,7 @@
 #include "USB/USB.h"
 #include "VMManager.h"
 #include "ps2/BiosTools.h"
+#include "mods/P2mTools.h"
 #include "Patch.h"
 #include "svnrev.h"
 #include "SysForwardDefs.h"
@@ -2766,17 +2767,28 @@ void FullscreenUI::DrawModsPage()
 
 	MenuHeading("Installed Mods");
 
-	DrawToggleSetting(bsi, "Some mod",
-		"This is a definitely real mod right here", "EmuCore", "InhibitScreensaver",
-		true);
+	//ImGuiFullscreen::ChoiceDialogOptions choices;
+	//choices.emplace_back("Automatic", bios_selection.empty());
 
-	DrawToggleSetting(bsi, "Amazing Mod",
-		"This is a definitely real mod right here", "EmuCore", "InhibitScreensaver",
-		true);
+	std::vector<std::string> values;
+	values.push_back("");
 
-	DrawToggleSetting(bsi, "Wow mod",
-		"This is a definitely real mod right here", "EmuCore", "InhibitScreensaver",
-		true);
+	FileSystem::FindResultsArray results;
+	FileSystem::FindFiles(EmuFolders::PTR2Mods.c_str(), "*", FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES, &results);
+	for (const FILESYSTEM_FIND_DATA& fd : results)
+	{
+		std::string title, author, description;
+		if (!IsP2M(fd.FileName.c_str() , title, author, description)) //add enabled bool (track active mods in ini file)
+			continue;
+		
+		DrawToggleSetting(bsi, (title + " by " + author).c_str(),
+			description.c_str(), "EmuCore", "InhibitScreensaver",
+			true);
+		//const std::string_view filename(Path::GetFileName(fd.FileName));
+		//choices.emplace_back(fmt::format("{} ({})", description, filename), bios_selection == filename);
+		//values.emplace_back(filename);
+
+	}
 
 	MenuHeading("Loading Behaviour");
 
@@ -2785,7 +2797,7 @@ void FullscreenUI::DrawModsPage()
 		true);
 
 	EndMenuButtons();
-
+	//DrawBIOSSettingsPage();
 }
 
 void FullscreenUI::DrawTexturePacksPage()

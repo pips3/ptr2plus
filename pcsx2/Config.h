@@ -1360,6 +1360,7 @@ namespace EmuFolders
 	extern std::string DataRoot;
 	extern std::string Settings;
 	extern std::string Bios;
+	extern std::string PTR2Mods;
 	extern std::string Snapshots;
 	extern std::string Savestates;
 	extern std::string MemoryCards;

@@ -375,7 +375,7 @@ bool pathFound(int& path_off, int& file_off, std::string filename)
 			return true;
 		}
 
-	} while (!fileFound(olm.file.fname_p, "STG00.OLM") && !fileFound(olm.stage_name_pos, "TITLE"));
+	} while (!fileFound(olm.file.fname_p, "STG00.OLM") || !fileFound(olm.stage_name_pos, "TITLE"));
 	return false;
 }
 bool PatchGamePaths(std::vector<std::string> paths, bool unpatch, std::vector<bool> tmp)
@@ -726,7 +726,7 @@ bool TryDeleteFiles()
 						return false;
 					}
 
-					std::fseek(fp.get(), hd.size_offset, SEEK_SET);
+					std::fseek(fp.get(), hd.size_offset + (8 * i), SEEK_SET);
 					int filesize;
 					int filepos;
 					std::fread(&filesize, 4, 1, fp.get());

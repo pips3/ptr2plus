@@ -35,6 +35,7 @@
 #include "Input/InputManager.h"
 #include "IopBios.h"
 #include "LogSink.h"
+#include "mods/P2mTools.h"
 #include "MTGS.h"
 #include "MTVU.h"
 #include "PCSX2Base.h"
@@ -942,6 +943,7 @@ void VMManager::HandleELFChange(bool verbose_patches_if_changed)
 
 	Console.WriteLn(Color_StrongOrange, fmt::format("ELF changed, active CRC {:08X} ({})", crc_to_report, s_elf_path));
 	Patch::ReloadPatches(s_disc_serial, crc_to_report, false, false, false, verbose_patches_if_changed);
+	PatchActiveMods();
 	ApplyCoreSettings();
 
 	MIPSAnalyst::ScanForFunctions(

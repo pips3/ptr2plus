@@ -30,6 +30,8 @@
 **/x64/Debug*
 **/x64/Devel*
 
+**/ptr2/*
+
 _ReSharper.*
 pcsx2.snapshot_*
 svnrev.h
@@ -80,6 +82,7 @@ oprofile_data/
 /bin/inis
 /bin/logs
 /bin/memcards
+/bin/mods
 /bin/plugins
 /bin/snaps
 /bin/sstates
@@ -97,3 +100,5 @@ oprofile_data/
 CMakeSettings.json
 /ci-artifacts/
 /out/
+/bin/mods
+*.p2m

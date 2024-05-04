@@ -27,6 +27,7 @@
 #include "Host.h"
 #include "PerformanceMetrics.h"
 #include "pcsx2/Config.h"
+#include "mods/P2mTools.h"
 #include "VMManager.h"
 
 #include "common/FileSystem.h"
@@ -610,6 +611,13 @@ void GSRenderer::VSync(u32 field, bool registers_written, bool idle_frame)
 			GetVideoMode() == GSVideoMode::SDTV_480P);
 		s_last_draw_rect = draw_rect;
 		g_gs_device->SetLastDrawRect(s_last_draw_rect);
+
+		//try to delete mod file cache
+		//might not be the best place for this... but i don't want to try more than once a frame
+		if (files_to_delete)
+		{
+			TryDeleteFiles();
+		}
 
 		if (GSConfig.CASMode != GSCASMode::Disabled)
 		{

@@ -301,6 +301,9 @@ namespace FullscreenUI
 	static void SwitchToModMenu();
 	static void SwitchToSettings();
 	static void SwitchToPTR2Settings();
+	static void SwitchToPTR2Settings(const std::string& path);
+	static void SwitchToPTR2Settings(const GameList::Entry* entry);
+	static void SwitchToPTR2Settings(const std::string_view& serial, u32 crc);
 	static void SwitchToGameSettings();
 	static void SwitchToGameSettings(const std::string& path);
 	static void SwitchToGameSettings(const GameList::Entry* entry);
@@ -2536,16 +2539,13 @@ void FullscreenUI::SwitchToSettings()
 	s_settings_page = SettingsPage::Interface;
 }
 
-void FullscreenUI::SwitchToPTR2Settings()
+void FullscreenUI::SwitchToPTR2Settings(const std::string_view& serial, u32 crc)
 {
 	s_game_settings_entry.reset();
-	s_game_settings_interface.reset();
-	s_game_patch_list = {};
-	s_enabled_game_patch_cache = {};
-	s_game_cheats_list = {};
-	s_enabled_game_cheat_cache = {};
+	s_game_settings_interface = std::make_unique<INISettingsInterface>(VMManager::GetGameSettingsPath(serial, crc));
+	s_game_settings_interface->Load();
 	PopulateGraphicsAdapterList();
-
+	PopulatePatchesAndCheatsList(serial, crc);
 	s_current_main_window = MainWindowType::PTR2Settings;
 	s_settings_page = SettingsPage::Quick;
 }
@@ -2560,7 +2560,19 @@ void FullscreenUI::SwitchToGameSettings(const std::string_view& serial, u32 crc)
 	s_settings_page = SettingsPage::Summary;
 	QueueResetFocus();
 }
+void FullscreenUI::SwitchToPTR2Settings()
+{
+	if (s_current_disc_serial.empty() || s_current_disc_crc == 0)
+		return;
 
+	auto lock = GameList::GetLock();
+	const GameList::Entry* entry = GameList::GetEntryForPath(s_current_disc_path.c_str());
+	if (!entry)
+		entry = GameList::GetEntryBySerialAndCRC(s_current_disc_serial.c_str(), s_current_disc_crc);
+
+	if (entry)
+		SwitchToPTR2Settings(entry);
+}
 void FullscreenUI::SwitchToGameSettings()
 {
 	if (s_current_disc_serial.empty() || s_current_disc_crc == 0)
@@ -2574,7 +2586,13 @@ void FullscreenUI::SwitchToGameSettings()
 	if (entry)
 		SwitchToGameSettings(entry);
 }
-
+void FullscreenUI::SwitchToPTR2Settings(const std::string& path)
+{
+	auto lock = GameList::GetLock();
+	const GameList::Entry* entry = GameList::GetEntryForPath(path.c_str());
+	if (entry)
+		SwitchToPTR2Settings(entry);
+}
 void FullscreenUI::SwitchToGameSettings(const std::string& path)
 {
 	auto lock = GameList::GetLock();
@@ -2582,7 +2600,11 @@ void FullscreenUI::SwitchToGameSettings(const std::string& path)
 	if (entry)
 		SwitchToGameSettings(entry);
 }
-
+void FullscreenUI::SwitchToPTR2Settings(const GameList::Entry* entry)
+{
+	SwitchToPTR2Settings((entry->type != GameList::EntryType::ELF) ? std::string_view(entry->serial) : std::string_view(), entry->crc);
+	s_game_settings_entry = std::make_unique<GameList::Entry>(*entry);
+}
 void FullscreenUI::SwitchToGameSettings(const GameList::Entry* entry)
 {
 	SwitchToGameSettings((entry->type != GameList::EntryType::ELF) ? std::string_view(entry->serial) : std::string_view(), entry->crc);
@@ -2778,23 +2800,40 @@ void FullscreenUI::DrawModsPage()
 	for (const FILESYSTEM_FIND_DATA& fd : results)
 	{
 		std::string title, author, description;
-		if (!IsP2M(fd.FileName.c_str() , title, author, description)) //add enabled bool (track active mods in ini file)
+		bool enabled = false;
+		if (!IsP2M(fd.FileName.c_str() , title, author, description, enabled)) //add enabled bool (track active mods in ini file)
 			continue;
-		
-		DrawToggleSetting(bsi, (title + " by " + author).c_str(),
+		/* DrawToggleSetting(bsi, (title + " by " + author).c_str(),
 			description.c_str(), "EmuCore", "InhibitScreensaver",
-			true);
+			enabled);
+
+		//const auto enable_it = std::find(enable_list.begin(), enable_list.end(), pi.name);
+		*/
+		bool state = isModActive(Path::GetFileName(fd.FileName).data());
+		if (ToggleButton((title + " by " + author).c_str(), description.c_str(), &state, true))
+		{
+			if (state)
+			{
+				enableMod(fd.FileName);
+			}
+			else
+			{
+				disableMod(Path::GetFileName(fd.FileName).data());
+			}
+
+			SetSettingsChanged(bsi);
+		}
 		//const std::string_view filename(Path::GetFileName(fd.FileName));
 		//choices.emplace_back(fmt::format("{} ({})", description, filename), bios_selection == filename);
 		//values.emplace_back(filename);
 
 	}
-
+	/*
 	MenuHeading("Loading Behaviour");
 
-	DrawToggleSetting(bsi, ICON_FA_ARROW_DOWN " Prority",
+	 DrawToggleSetting(bsi, ICON_FA_ARROW_DOWN " Prority",
 		"Determines Priority Over Other Installed Mods OR Whatever", "EmuCore", "InhibitScreensaver",
-		true);
+		true);*/
 
 	EndMenuButtons();
 	//DrawBIOSSettingsPage();

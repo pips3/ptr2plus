@@ -2,6 +2,10 @@
 
 #include <stdint.h>
 
+unsigned char _BitScanReverse(
+	unsigned long* Index,
+	unsigned long Mask
+);
 
 inline static uint32_t bit_length(uint32_t n) {
 	const uint32_t n_minus_1 = n - 1;

@@ -277,6 +277,9 @@
     <Filter Include="System\Ps2\Iop\SIO\PAD">
       <UniqueIdentifier>{2ef3ebf7-d2a3-4b33-8059-a09b82c085ed}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Mods">
+      <UniqueIdentifier>{9f99a0d0-2c48-4c4b-bfe2-14599affc384}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include="Docs\License.txt">
@@ -1434,7 +1437,7 @@
       <Filter>System\Ps2\Iop\SIO\PAD</Filter>
     </ClCompile>
     <ClCompile Include="mods\P2mTools.cpp">
-      <Filter>Misc</Filter>
+      <Filter>Mods</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -2372,7 +2375,9 @@
     <ClInclude Include="SIO\Pad\Pad.h">
       <Filter>System\Ps2\Iop\SIO\PAD</Filter>
     </ClInclude>
-    <ClInclude Include="mods\P2mTools.h" />
+    <ClInclude Include="mods\P2mTools.h">
+      <Filter>Mods</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuildStep Include="rdebug\deci2.h">

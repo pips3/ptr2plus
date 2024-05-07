@@ -337,7 +337,6 @@
       <Filter>moc</Filter>
     </ClCompile>
     <ClCompile Include="Settings\QuickSettingsWidget.cpp" />
-    <ClCompile Include="x64\Debug\Settings\moc_QuickSettingsWidget.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Manifest Include="..\pcsx2\windows\PCSX2.manifest">

@@ -229,7 +229,7 @@ void QuickSettingsWidget::onMinimalOutputLatencyStateChanged()
 
 void QuickSettingsWidget::presetChanged()
 {
-	int curval = m_ui.perfPreset->currentIndex();
+	// int curval = m_ui.perfPreset->currentIndex();
 	//could be a switch
 	if (m_ui.perfPreset->currentIndex() == 2) // max quality
 	{

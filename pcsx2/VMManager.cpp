@@ -91,7 +91,7 @@
 #endif
 
 // PTR2+ Includes
-#include "PTR2Hooks.h"
+#include "mods/PTR2Hooks.h"
 
 namespace VMManager
 {
@@ -1553,6 +1553,9 @@ bool VMManager::DoLoadState(const char* filename)
 		g_InputRecording.handleLoadingSavestate();
 		MTGS::PresentCurrentFrame();
 	}
+
+	// PTR2+: Look for hooks on the loaded state
+	PrHookMgr()->InitHooks();
 
 	return true;
 }

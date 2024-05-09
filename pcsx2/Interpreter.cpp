@@ -31,7 +31,7 @@
 #include <float.h>
 
 /** PTR2+ includes **/
-#include "PTR2Hooks.h"
+#include "mods/PTR2Hooks.h"
 
 using namespace R5900;		// for OPCODE and OpcodeImpl
 

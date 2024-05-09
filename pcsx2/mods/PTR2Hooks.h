@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Common.h"
+
+typedef void (*hookFunc_t)();
 typedef u32 u_adr;
 
 namespace PTR2
@@ -38,9 +41,27 @@ namespace PTR2
 	};  /* 0x20 */
 
 	static_assert(sizeof(PACKINT_FILE_STR) == 0x20, "PACKINT_FILE_STR struct is not 0x20 bytes");
-
-	namespace hook
-	{
-		void CdctrlMemIntgDecode();
-	}
 }
+
+class PrHookManager
+{
+	DeclareNoncopyableObject(PrHookManager);
+
+public:
+	PrHookManager() = default;
+	~PrHookManager() = default;
+
+	void InitHooks();
+	void RunHooks(const u32 curPC);
+
+	/* Hooks */
+	static void CdctrlMemIntgDecode();
+private:
+	u32  m_gameHash;
+	bool m_hooksInit;
+
+	std::unordered_map<u32, hookFunc_t> m_hookMap;
+	std::unordered_map<u32, u32>        m_returnMap;
+};
+
+PrHookManager* PrHookMgr();

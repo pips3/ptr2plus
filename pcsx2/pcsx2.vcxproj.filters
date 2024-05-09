@@ -1439,6 +1439,9 @@
     <ClCompile Include="mods\P2mTools.cpp">
       <Filter>Mods</Filter>
     </ClCompile>
+    <ClCompile Include="PTR2Hooks.cpp">
+      <Filter>Mods</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Patch.h">
@@ -2376,6 +2379,12 @@
       <Filter>System\Ps2\Iop\SIO\PAD</Filter>
     </ClInclude>
     <ClInclude Include="mods\P2mTools.h">
+      <Filter>Mods</Filter>
+    </ClInclude>
+    <ClInclude Include="PTR2Hooks.h">
+      <Filter>Mods</Filter>
+    </ClInclude>
+    <ClInclude Include="mods\PTR2Common.h">
       <Filter>Mods</Filter>
     </ClInclude>
   </ItemGroup>

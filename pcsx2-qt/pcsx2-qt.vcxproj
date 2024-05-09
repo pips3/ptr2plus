@@ -238,7 +238,7 @@
     <ClCompile Include="$(IntDir)Settings\moc_AchievementLoginDialog.cpp" />
     <ClCompile Include="$(IntDir)Settings\moc_AchievementSettingsWidget.cpp" />
     <ClCompile Include="$(IntDir)Settings\moc_DebugSettingsWidget.cpp" />
-	<ClCompile Include="$(IntDir)Settings\moc_QuickSettingsWidget.cpp" />
+    <ClCompile Include="$(IntDir)Settings\moc_QuickSettingsWidget.cpp" />
     <ClCompile Include="$(IntDir)Debugger\moc_DebuggerWindow.cpp" />
     <ClCompile Include="$(IntDir)Debugger\moc_CpuWidget.cpp" />
     <ClCompile Include="$(IntDir)Debugger\moc_DisassemblyWidget.cpp" />

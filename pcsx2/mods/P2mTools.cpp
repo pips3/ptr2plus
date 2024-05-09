@@ -6,6 +6,10 @@
 
 #include "Memory.h"
 
+#include "PTR2Common.h"
+
+using namespace PTR2;
+
 bool files_to_delete;
 #pragma pack(push, 1)
 
@@ -29,41 +33,6 @@ struct p2m_header
 };
 
 #pragma pack(pop)
-enum FREAD_MODE
-{
-	FRMODE_PC = 0,
-	FRMODE_CD = 1,
-	FRMODE_MAX = 2
-};
-
-enum FTYPE_MODE
-{
-	FTMODE_INTG = 0,
-	FTMODE_WP2 = 1,
-	FTMODE_ETC = 2,
-	FTMODE_XTR = 3,
-	FTMODE_MAX = 4
-};
-
-struct sceCdlFILE
-{
-	u32 lsn;
-	u32 size;
-	char name[16];
-	char date[8];
-	u32 flag;
-};
-
-struct FILE_STR
-{
-	u8 frmode; /* use with FREAD_MODE */
-	u8 ftmode; /* use with FTYPE_MODE */
-	u8 mchan;
-	u8 search;
-	u32 fname_p;
-	sceCdlFILE fpCd;
-};
-
 
 struct STDAT_DAT
 {
@@ -111,6 +80,7 @@ static std::string GetActiveModsFilename()
 {
 	return Path::Combine(EmuFolders::Cache, "activemods.cache");
 }
+
 static std::string GetPTR2ModDirectory()
 {
 	return Path::Combine(EmuFolders::PTR2, "/MOD");
@@ -260,6 +230,7 @@ bool addActiveModEntry(std::string filename, std::vector<std::string> paths)
 	std::fseek(fp.get(), 0, SEEK_SET);
 	std::fwrite(&file_count, sizeof(file_count), 1, fp.get());
 
+	return true;
 }
 
 bool removeActiveModEntry(std::string mod)
@@ -312,6 +283,7 @@ bool fileFound(u32 mem, std::string filename)
 	{
 		return true;
 	}
+
 	return false;
 }
 
@@ -365,7 +337,8 @@ bool pathFound(int& path_off, int& file_off, std::string filename)
 
 	} while (!fileFound(stdat.file1.fname_p, "VS08VS0.INT"));
 	olm_struct olm;
-	do //loop through olm structs
+
+	do // Loop through OLM structs
 	{
 		readBytes(mem_pointer, &olm, sizeof(olm));
 		if (fileFound(olm.file.fname_p, filename))
@@ -376,8 +349,10 @@ bool pathFound(int& path_off, int& file_off, std::string filename)
 		}
 
 	} while (!fileFound(olm.file.fname_p, "STG00.OLM") || !fileFound(olm.stage_name_pos, "TITLE"));
+
 	return false;
 }
+
 bool PatchGamePaths(std::vector<std::string> paths, bool unpatch, std::vector<bool> tmp)
 {
 	for (int i = 0; i < paths.size(); i++)
@@ -411,9 +386,13 @@ bool PatchGamePaths(std::vector<std::string> paths, bool unpatch, std::vector<bo
 			vtlb_memSafeWriteBytes(file_off + 3, search, 1);
 			continue;
 		}
+
 		return false;
 	}
+
+	return true;
 }
+
 bool PatchGamePaths(std::vector<std::string> paths, bool unpatch)
 {
 	for (int i = 0; i < paths.size(); i++)
@@ -443,9 +422,13 @@ bool PatchGamePaths(std::vector<std::string> paths, bool unpatch)
 			vtlb_memSafeWriteBytes(file_off + 3, search, 1);
 			continue;
 		}
+
 		return false;
 	}
+
+	return true;
 }
+
 bool PatchGamePaths(std::string path, bool unpatch, bool tmp)
 {
 	std::string filename = Path::GetFileName(path).data();
@@ -571,7 +554,10 @@ bool addDeleteEntry(std::string path)
 	file_count++;
 	std::fseek(fp.get(), 0, SEEK_SET);
 	std::fwrite(&file_count, sizeof(file_count), 1, fp.get());
+
+	return true;
 }
+
 /* unused
 bool removeDeleteEntry(std::string path)
 {
@@ -616,6 +602,7 @@ bool removeDeleteEntry(std::string path)
 	}
 	return true;
 }*/
+
 //sometimes loading a new mod isnt possible because the current active file is in use by the game
 //instead of stopping the user, we can put the new mod in a TMP folder and tell the game it's there
 //the current active file path is put in a deletecache file similar to activemodscache, and will be deleted
@@ -705,7 +692,7 @@ bool TryDeleteFiles()
 					std::fseek(fp.get(), hd.path_offset, SEEK_SET);
 
 					int i;
-					bool found;
+					bool found = false;
 					for (i = 0; i < hd.file_count; i++)
 					{
 						char buf[50];
@@ -799,6 +786,8 @@ bool disableMod(std::string modname)
 
 	//remove patched paths from game memory
 	PatchGamePaths(modpaths, true);
+
+	return true;
 }
 
 bool enableMod(std::string filename)
@@ -905,9 +894,9 @@ bool enableMod(std::string filename)
 	//add to activemods
 	std::string mod = Path::GetFileName(filename).data();
 	addActiveModEntry(mod, paths);
+
+	return true;
 }
-
-
 
 bool IsP2M(const char* filename, std::string& title, std::string& author, std::string& description, bool& enabled)
 {

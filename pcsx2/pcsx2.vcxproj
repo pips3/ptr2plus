@@ -234,6 +234,7 @@
     <ClCompile Include="PINE.cpp" />
     <ClCompile Include="FW.cpp" />
     <ClCompile Include="PerformanceMetrics.cpp" />
+    <ClCompile Include="PTR2Hooks.cpp" />
     <ClCompile Include="Recording\InputRecording.cpp" />
     <ClCompile Include="Recording\InputRecordingControls.cpp" />
     <ClCompile Include="Recording\InputRecordingFile.cpp" />
@@ -586,9 +587,11 @@
     <ClInclude Include="LayeredSettingsInterface.h" />
     <ClInclude Include="LogSink.h" />
     <ClInclude Include="mods\P2mTools.h" />
+    <ClInclude Include="mods\PTR2Common.h" />
     <ClInclude Include="PINE.h" />
     <ClInclude Include="FW.h" />
     <ClInclude Include="PerformanceMetrics.h" />
+    <ClInclude Include="PTR2Hooks.h" />
     <ClInclude Include="Recording\InputRecording.h" />
     <ClInclude Include="Recording\InputRecordingControls.h" />
     <ClInclude Include="Recording\InputRecordingFile.h" />

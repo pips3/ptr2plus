@@ -90,6 +90,9 @@
 #include "discord_rpc.h"
 #endif
 
+// PTR2+ Includes
+#include "PTR2Hooks.h"
+
 namespace VMManager
 {
 	static void ApplyGameFixes();
@@ -1979,6 +1982,7 @@ void VMManager::Internal::EntryPointCompilingOnCPUThread()
 	}
 
 	HandleELFChange(true);
+	PrHookMgr()->InitHooks();
 
 	Patch::ApplyLoadedPatches(Patch::PPT_ONCE_ON_LOAD);
 	// If the config changes at this point, it's a reset, so the game doesn't currently know about the memcard

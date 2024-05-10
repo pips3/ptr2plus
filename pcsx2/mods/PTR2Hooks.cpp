@@ -65,6 +65,13 @@ void PrHookManager::CdctrlMemIntgDecode()
 	PACKINT_FILE_STR packFile;
 	vtlb_memSafeReadBytes(int_head_pp, &packFile, sizeof(packFile));
 
+	//save the name chunk now, before the packed int gets overwritten by unpacked files
+	//in the memory pool - the game doesn't care because it doesn't use the name chunk and it
+	//already copied the header chunk elsewhere
+
+	char name_chunk[80000]; //biggest name_chunk the game has is probably st8.int with ~41,000 - i havent checked XTR
+	vtlb_memSafeReadBytes(int_head_pp + head_size, &name_chunk, name_size);
+
 	std::string folder;
 	switch (packFile.ftype)
 	{
@@ -97,25 +104,25 @@ void PrHookManager::CdctrlMemIntgDecode()
 #if defined(PCSX2_DEVBUILD)
 	Console.WriteLn("Writing " + folder + " to: " + fmt::format("{:#08x}", (write_pp - 0x20000000) + memOff));
 #endif
+	int strings_off = (8 * packFile.fnum);
 
 	for (int i = 0; i < packFile.fnum; i++)
 	{
 		//get file size and name pointer
 		int size = 0;
-		vtlb_memSafeReadBytes(int_head_pp + packFile.head_size + 0x04 + (8 * i), &size, 0x04);
-		int name_pp = 0;
-		vtlb_memSafeReadBytes(int_head_pp + packFile.head_size + (8 * i), &name_pp, 0x04);
+		memcpy(&size, name_chunk + 4 + (8 * i), 4);
 
-		int strings_off = int_head_pp + packFile.head_size + (8 * packFile.fnum);
+		int name_pp = 0;
+		memcpy(&name_pp, name_chunk + (8 * i), 4);
 
 		//calculate size of name (null terminated)
 		int filename_size = 0;
-		while (memRead8(strings_off + name_pp + filename_size) != 0)
+		while (name_chunk[strings_off + name_pp + filename_size] != '\0')
 		{
 			filename_size++;
 		}
 		char buf[500];
-		vtlb_memSafeReadBytes(strings_off + name_pp, &buf, filename_size);
+		memcpy(&buf, name_chunk + strings_off + name_pp, filename_size);
 		buf[filename_size] = 0;
 		std::string name = buf;
 

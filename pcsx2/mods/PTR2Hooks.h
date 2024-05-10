@@ -56,6 +56,8 @@ public:
 
 	/* Hooks */
 	static void CdctrlMemIntgDecode();
+	static void intReadSub();
+
 private:
 	u32  m_gameHash;
 	bool m_hooksInit;

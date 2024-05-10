@@ -52,7 +52,7 @@ public:
 	~PrHookManager() = default;
 
 	void InitHooks();
-	void RunHooks(const u32 curPC);
+	bool RunHooks(const u32 curPC);
 
 	/* Hooks */
 	static void CdctrlMemIntgDecode();

@@ -875,6 +875,9 @@
     <ProjectReference Include="..\3rdparty\sdl2\SDL.vcxproj">
       <Project>{812b4434-fd6b-4cb2-8865-5fd8eb34b046}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\3rdparty\zydis\zydis.vcxproj">
+      <Project>{67d0160c-0fe4-44b9-ac2e-82bbcf4104df}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\common\common.vcxproj">
       <Project>{4639972e-424e-4e13-8b07-ca403c481346}</Project>
     </ProjectReference>

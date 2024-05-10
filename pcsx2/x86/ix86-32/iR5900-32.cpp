@@ -35,6 +35,9 @@
 #include "common/FastJmp.h"
 #include "common/Perf.h"
 
+/** PTR2+ includes **/
+#include "mods/PTR2Hooks.h"
+
 // Only for MOVQ workaround.
 #include "common/emitter/internal.h"
 
@@ -111,7 +114,7 @@ static EEINST* s_psaveInstInfo = NULL;
 
 static u32 s_savenBlockCycles = 0;
 
-static void iBranchTest(u32 newpc = 0xffffffff);
+void iBranchTest(u32 newpc = 0xffffffff);
 static void ClearRecLUT(BASEBLOCK* base, int count);
 static u32 scaleblockcycles();
 static void recExitExecution();
@@ -1385,7 +1388,7 @@ u32 scaleblockcycles_clear()
 //   noDispatch - When set true, then jump to Dispatcher.  Used by the recs
 //   for blocks which perform exception checks without branching (it's enabled by
 //   setting "g_branch = 2";
-static void iBranchTest(u32 newpc)
+void iBranchTest(u32 newpc)
 {
 	// Check the Event scheduler if our "cycle target" has been reached.
 	// Equiv code to:
@@ -1695,6 +1698,8 @@ void recompileNextInstruction(bool delayslot, bool swapped_delay_slot)
 	if (EmuConfig.EnablePatches)
 		Patch::ApplyDynamicPatches(pc);
 
+	PrHookMgr()->RunHooks(pc);
+
 	// add breakpoint
 	if (!delayslot)
 	{
@@ -1706,7 +1711,8 @@ void recompileNextInstruction(bool delayslot, bool swapped_delay_slot)
 #ifdef DUMP_BLOCKS
 		std::string disasm;
 		disR5900Fasm(disasm, *(u32*)PSM(pc), pc, false);
-		fprintf(stderr, "Compiling delay slot %08X %s\n", pc, disasm.c_str());
+		//fprintf(stderr, "Compiling delay slot %08X %s\n", pc, disasm.c_str());
+		Console.WriteLn("Compiling delay slot %08X %s", pc, disasm.c_str());
 #endif
 
 		_clearNeededX86regs();
@@ -2643,7 +2649,8 @@ StartRecomp:
 			{
 				std::string disasm;
 				disR5900Fasm(disasm, *(u32*)PSM(pc), pc, false);
-				fprintf(stderr, "Compiling %08X %s\n", pc, disasm.c_str());
+				//fprintf(stderr, "Compiling %08X %s\n", pc, disasm.c_str());
+				Console.WriteLn("Compiling %08X %s\n", pc, disasm.c_str());
 
 				const u8* instStart = x86Ptr;
 				recompileNextInstruction(false, false);
@@ -2654,7 +2661,8 @@ StartRecomp:
 				{
 					char buffer[256];
 					if (ZYAN_SUCCESS(ZydisFormatterFormatInstruction(&disas_formatter, &disas_instruction, buffer, sizeof(buffer), (ZyanU64)instPtr)))
-						std::fprintf(stderr, "    %016" PRIX64 "    %s\n", (u64)instPtr, buffer);
+						Console.WriteLn("    %016" PRIX64 "    %s\n", (u64)instPtr, buffer);
+						//std::fprintf(stderr, "    %016" PRIX64 "    %s\n", (u64)instPtr, buffer);
 
 					instPtr += disas_instruction.length;
 					instLength -= disas_instruction.length;

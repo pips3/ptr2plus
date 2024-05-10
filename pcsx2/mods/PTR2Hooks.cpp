@@ -1,3 +1,5 @@
+#include "PrecompiledHeader.h"
+
 #include "PTR2Hooks.h"
 
 #include "mods/PTR2Common.h"
@@ -8,6 +10,11 @@
 #include <common/Path.h>
 #include <common/FileSystem.h>
 
+#include "x86/iR5900.h"
+
+extern void iBranchTest(u32 newpc);
+
+using namespace x86Emitter;
 using namespace PTR2;
 
 PrHookManager* PrHookMgr()
@@ -24,7 +31,7 @@ void PrHookManager::InitHooks()
 	{
 	case 0x38E1D1E3: /* Patched PTR2 NTSC-J */
 		m_hookMap.insert( { 0x00105AD8, CdctrlMemIntgDecode} );
-		m_returnMap.insert( { 0x00105AD8, 0x00105AE0 });
+		m_returnMap.insert( { 0x00105AD8, 0x00105AEC });
 		m_hooksInit = true;
 		break;
 	}
@@ -32,7 +39,9 @@ void PrHookManager::InitHooks()
 
 void PrHookManager::CdctrlMemIntgDecode()
 {
+#if defined(PCSX2_DEVBUILD)
 	Console.WriteLn(Color_Green, "[PTR2] CdctrlMemIntgDecode hook called");
+#endif
 
 	int memOff = 0;
 
@@ -85,8 +94,9 @@ void PrHookManager::CdctrlMemIntgDecode()
 	// Get cached address
 	int write_pp = cpuRegs.GPR.n.a1.UD[0] + 0x20000000;
 
-	//Console.WriteLn("write_pp = " + std::to_string(write_pp) + ", memOff = " + std::to_string(memOff));
+#if defined(PCSX2_DEVBUILD)
 	Console.WriteLn("Writing " + folder + " to: " + fmt::format("{:#08x}", (write_pp - 0x20000000) + memOff));
+#endif
 
 	for (int i = 0; i < packFile.fnum; i++)
 	{
@@ -109,7 +119,9 @@ void PrHookManager::CdctrlMemIntgDecode()
 		buf[filename_size] = 0;
 		std::string name = buf;
 
+#if defined(PCSX2_DEVBUILD)
 		Console.WriteLn("Writing " + name + " to: " + fmt::format("{:#08x}", (write_pp - 0x20000000) + memOff));
+#endif
 
 		//get int file name
 		char buf2[24];
@@ -154,10 +166,10 @@ void PrHookManager::CdctrlMemIntgDecode()
 	}
 }
 
-void PrHookManager::RunHooks(const u32 curPC)
+bool PrHookManager::RunHooks(const u32 curPC)
 {
 	if (!m_hooksInit)
-		return;
+		return false;
 
 	// Find the functions to hook
 	auto hook = m_hookMap.find(curPC);
@@ -166,12 +178,28 @@ void PrHookManager::RunHooks(const u32 curPC)
 	if (hook != m_hookMap.end())
 	{
 		// Execute the hook!
-		hook->second();
+		if (CHECK_EEREC)
+			recCall(hook->second);
+		else
+			hook->second();
 
 		if (ret != m_returnMap.end())
 		{
 			// We're done, leave the game alone for now
-			cpuRegs.pc = ret->second;
+			if (CHECK_EEREC)
+			{
+				g_branch = 1;
+
+				iFlushCall(FLUSH_EVERYTHING);
+				xMOV(ptr32[&cpuRegs.pc], ret->second);
+				iBranchTest(ret->second);
+			}
+			else
+			{
+				cpuRegs.pc = ret->second;
+			}
+
+			return true;
 		}
 		else
 		{
@@ -179,4 +207,6 @@ void PrHookManager::RunHooks(const u32 curPC)
 			Console.WriteLn(Color_Red, "[PTR2] Couldn't find return address!");
 		}
 	}
+
+	return false;
 }

@@ -51,11 +51,24 @@ void PrHookManager::CdctrlMemIntgDecode()
 	int memOff = 0;
 
 	// Find FILE_STR on sp and get int name pointer
+
 	int FILE_STR_pp;
 	int int_name_pp;
 
 	vtlb_memSafeReadBytes(cpuRegs.GPR.n.sp.UD[0] + 0x10, &FILE_STR_pp, 0x04);
 	vtlb_memSafeReadBytes(FILE_STR_pp + 0x04, &int_name_pp, 0x04);
+
+	//get int path to check if correct pointer or not
+	char buf2[24];
+	vtlb_memSafeReadBytes(int_name_pp, buf2, sizeof(buf2));
+	std::string int_path = buf2;
+	if (int_path.find("INT") == std::string::npos) //if bad FILE_STR_pp
+	{
+		// it's probably a boxy HKO INT which has the pointer at a different place
+		vtlb_memSafeReadBytes(cpuRegs.GPR.n.sp.UD[0], &FILE_STR_pp, 0x04);
+		FILE_STR_pp += 0x1C; //gotta do this for boxy
+		vtlb_memSafeReadBytes(FILE_STR_pp + 0x04, &int_name_pp, 0x04);
+	}
 
 	// Get current int header off using a0 - header_size - name_size
 	// Probably a better way of finding this (stack pointer maybe)

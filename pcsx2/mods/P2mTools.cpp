@@ -463,6 +463,17 @@ bool PatchGamePaths(std::string path, bool unpatch, bool tmp)
 	return false;
 }
 
+bool isIntAsset(std::string path)
+{
+	std::string extension = Path::GetExtension(path.data()).data();
+	transform(extension.begin(), extension.end(), extension.begin(), ::toupper);
+	if (extension.find("WP2") == std::string::npos && extension.find("INT") == std::string::npos && extension.find("XTR") == std::string::npos && extension.find("XTR") == std::string::npos)
+		return true;
+	else
+		return false;
+}
+
+
 bool PatchActiveMods()
 {
 	const std::string activemods_filename(GetActiveModsFilename());
@@ -479,13 +490,13 @@ bool PatchActiveMods()
 			return false;
 		std::string pathname = buf;
 
-		std::vector<std::string> modpaths;
-		modpaths.push_back(pathname);
-		if (!PatchGamePaths(modpaths, false))
+		if (!isIntAsset(pathname))
 		{
-			return false;
+			if (!PatchGamePaths(pathname, false, false))
+			{
+				return false;
+			}
 		}
-
 		//necessary to get to next file 
 		char buf2[900];
 		//fgets puts file offset at end for some reason, so reset it:
@@ -738,7 +749,8 @@ bool TryDeleteFiles()
 
 					newpaths.push_back(pathTMP); //add to delete cache
 				}
-				PatchGamePaths(pathMOD, false, false);
+				if (!isIntAsset(pathMOD))
+					PatchGamePaths(pathMOD, false, false);
 			}
 		}
 		//std::string name = Path::GetFileName(path);
@@ -762,6 +774,7 @@ bool TryDeleteFiles()
 	return true;
 }
 
+
 bool disableMod(std::string modname)
 {
 	//get files of mod
@@ -784,8 +797,17 @@ bool disableMod(std::string modname)
 	//remove from activemods
 	removeActiveModEntry(modname);
 
+	std::vector<std::string> unpatch_paths;
+	for (std::string path : modpaths)
+	{
+		if (!isIntAsset(path))
+		{
+			unpatch_paths.push_back(path);
+		}
+	}
+
 	//remove patched paths from game memory
-	PatchGamePaths(modpaths, true);
+	PatchGamePaths(unpatch_paths, true);
 
 	return true;
 }
@@ -828,7 +850,7 @@ bool enableMod(std::string filename)
 		{
 			disableMod(existing_mod);
 			//if file in delete cache, mark it to be put in TMP
-			if (isInDeleteCache(path))
+			if (isInDeleteCache(path) && !isIntAsset(path)) //dont count int asset as TMP workaround isnt necessary
 			{
 				tmp.push_back(true);
 				continue;
@@ -857,6 +879,8 @@ bool enableMod(std::string filename)
 		{
 			mod_file = GetModFilePath(path);
 		}
+		std::string mod_path = std::string(Path::GetDirectory(mod_file));
+		FileSystem::EnsureDirectoryExists(mod_path.c_str(), true);
 		const auto newfp = FileSystem::OpenManagedCFile(mod_file.c_str(), "w+b");
 
 		const int buf_size = 4096;
@@ -890,7 +914,23 @@ bool enableMod(std::string filename)
 	}*/
 	//memWrite32(0x38FF8C, 0x4F4D5C3A);
 	//memWrite32(0x38FF90, 0x00000044);
-	PatchGamePaths(paths, false, tmp);
+
+
+	//dont patch files from unpacked INT/XTR files as they aren't in the ISO paths
+	//they are loaded using PTR2Hooks, which will use the activemod cache file
+
+	std::vector<std::string> patch_paths;
+	std::vector<bool> patch_tmp;
+	for (int i = 0; i < hd.file_count; i++)
+	{
+		if (!isIntAsset(paths[i]))
+		{
+			patch_paths.push_back(paths[i]);
+			patch_tmp.push_back(tmp[i]);
+		}
+	}
+
+	PatchGamePaths(patch_paths, false, patch_tmp);
 	//add to activemods
 	std::string mod = Path::GetFileName(filename).data();
 	addActiveModEntry(mod, paths);

@@ -11,6 +11,7 @@
 #include <common/FileSystem.h>
 
 #include "x86/iR5900.h"
+#include <pcsx2/mods/P2mTools.h>
 
 extern void iBranchTest(u32 newpc);
 
@@ -156,13 +157,25 @@ void PrHookManager::CdctrlMemIntgDecode()
 		//remove ".INT"
 		std::string int_dir = int_path.substr(0, int_path.size() - 4);
 
-		std::string path = int_dir + "\\" + folder + "\\" + name;
+		std::string int_title(Path::GetFileTitle(int_path));
 
 		// Remove "host:\"
-		std::string rel_path = path.substr(6, path.size());
+		std::string path = int_dir;
+		path = path.substr(6, path.size());
 
-		std::string final_path = Path::Combine(EmuFolders::PTR2, rel_path);
+		path+= "\\" + folder + "\\" + name;
+		
 
+		//replace path with modded file if active mod
+		std::string mod;
+		if (findActiveMod(path, mod))
+		{
+			path = "MOD\\" + int_title + "\\" + folder + "\\" + name;
+#if defined(PCSX2_DEVBUILD)
+			Console.WriteLn(Color_Cyan, "Using " + name + " from " + mod + " instead.");
+		}
+#endif
+		std::string final_path = Path::Combine(EmuFolders::PTR2, path);
 
 		// Write bytes from file to memory
 		const auto fp = FileSystem::OpenManagedCFile(final_path.c_str(), "rb");
@@ -292,13 +305,25 @@ void PrHookManager::intReadSub()
 		//remove ".INT"
 		std::string int_dir = int_path.substr(0, int_path.size() - 4);
 
-		std::string path = int_dir + "\\" + folder + "\\" + name;
+		std::string int_title(Path::GetFileTitle(int_path));
 
 		// Remove "host:\"
-		std::string rel_path = path.substr(6, path.size());
+		std::string path = int_dir;
+		path = path.substr(6, path.size());
 
-		std::string final_path = Path::Combine(EmuFolders::PTR2, rel_path);
+		path += "\\" + folder + "\\" + name;
 
+
+		//replace path with modded file if active mod
+		std::string mod;
+		if (findActiveMod(path, mod))
+		{
+			path = "MOD\\" + int_title + "\\" + folder + "\\" + name;
+#if defined(PCSX2_DEVBUILD)
+			Console.WriteLn(Color_Cyan, "Using " + name + " from " + mod + " instead.");
+		}
+#endif
+		std::string final_path = Path::Combine(EmuFolders::PTR2, path);
 
 		// Write bytes from file to memory
 		const auto fp = FileSystem::OpenManagedCFile(final_path.c_str(), "rb");

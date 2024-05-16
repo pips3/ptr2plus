@@ -2447,10 +2447,15 @@ void VMManager::WarnAboutUnsafeSettings()
 		append(ICON_FA_EXCLAMATION_CIRCLE,
 			TRANSLATE_SV("VMManager", "INTC Spin Detection is not enabled, this may reduce performance."));
 	}
-	if (!EmuConfig.Speedhacks.vu1Instant)
+	if (EmuConfig.Speedhacks.vuThread)
 	{
 		append(ICON_FA_EXCLAMATION_CIRCLE,
-			TRANSLATE_SV("VMManager", "Instant VU1 is disabled, this may reduce performance."));
+			TRANSLATE_SV("VMManager", "MTVU (Multi-Threaded VU1) is enabled, this will break visuals in PaRappa 2 (black box, noodles)"));
+	}
+	if (EmuConfig.Speedhacks.vu1Instant)
+	{
+		append(ICON_FA_EXCLAMATION_CIRCLE,
+			TRANSLATE_SV("VMManager", "Instant VU! is enabled, this will break visuals in PaRappa 2 (black box, noodles)"));
 	}
 	if (!EmuConfig.Speedhacks.vuFlagHack)
 	{
@@ -2660,16 +2665,17 @@ static void SetMTVUAndAffinityControlDefault(SettingsInterface& si)
 		cpuinfo_get_cluster(0)->core_count + ((cluster_count > 2) ? cpuinfo_get_cluster(1)->core_count : 0u);
 	Console.WriteLn("Guessing we have %u big/medium cores...", big_cores);
 
-	if (big_cores >= 3)
+	/* if (big_cores >= 3)
 	{
 		Console.WriteLn("  Enabling MTVU.");
 		si.SetBoolValue("EmuCore/Speedhacks", "vuThread", true);
 	}
 	else
-	{
-		Console.WriteLn("  Disabling MTVU.");
-		si.SetBoolValue("EmuCore/Speedhacks", "vuThread", false);
-	}
+	{*/
+		//Console.WriteLn("  Disabling MTVU.");
+		Console.WriteLn("Not enabling MTVU because it breaks PaRappa 2 (black box/noodles");
+		//si.SetBoolValue("EmuCore/Speedhacks", "vuThread", false);
+	//}
 
 	const int extra_threads = (big_cores > 3) ? 3 : 2;
 	Console.WriteLn("  Setting Extra Software Rendering Threads to %d.", extra_threads);

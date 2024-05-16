@@ -243,7 +243,8 @@ Pcsx2Config::SpeedhackOptions::SpeedhackOptions()
 	WaitLoop = true;
 	IntcStat = true;
 	vuFlagHack = true;
-	vu1Instant = true;
+	//vu1Instant = true; //except this one (parappa 2 black box fix
+	
 }
 
 Pcsx2Config::SpeedhackOptions& Pcsx2Config::SpeedhackOptions::DisableAll()
@@ -1394,6 +1395,9 @@ Pcsx2Config::Pcsx2Config()
 	InhibitScreensaver = true;
 	BackupSavestate = true;
 	SavestateZstdCompression = true;
+	//black box/noodles fix for parappa 2, set as default for ptr2plus
+	EmuConfig.Speedhacks.vuThread = false;
+	EmuConfig.Speedhacks.vu1Instant = false;
 
 #ifdef _WIN32
 	McdCompressNTFS = true;

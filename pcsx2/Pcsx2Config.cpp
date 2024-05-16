@@ -1398,6 +1398,8 @@ Pcsx2Config::Pcsx2Config()
 	//black box/noodles fix for parappa 2, set as default for ptr2plus
 	EmuConfig.Speedhacks.vuThread = false;
 	EmuConfig.Speedhacks.vu1Instant = false;
+	//ptr2plus needs hostfs on
+	HostFs = true;
 
 #ifdef _WIN32
 	McdCompressNTFS = true;

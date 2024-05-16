@@ -3749,7 +3749,7 @@ void FullscreenUI::DrawEmulationSettingsPage()
 		"vu1Instant", true);
 	DrawToggleSetting(bsi, "Enable Cheats", "Enables loading cheats from pnach files.", "EmuCore", "EnableCheats", false);
 	DrawToggleSetting(bsi, "Enable Host Filesystem", "Enables access to files from the host: namespace in the virtual machine.", "EmuCore",
-		"HostFs", false);
+		"HostFs", false, false);
 
 	if (IsEditingGameSettings(bsi))
 	{

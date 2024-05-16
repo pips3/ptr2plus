@@ -173,8 +173,9 @@ void PrHookManager::CdctrlMemIntgDecode()
 			path = "MOD\\" + int_title + "\\" + folder + "\\" + name;
 #if defined(PCSX2_DEVBUILD)
 			Console.WriteLn(Color_Cyan, "Using " + name + " from " + mod + " instead.");
-		}
 #endif
+
+		}
 		std::string final_path = Path::Combine(EmuFolders::PTR2, path);
 
 		// Write bytes from file to memory
@@ -321,8 +322,8 @@ void PrHookManager::intReadSub()
 			path = "MOD\\" + int_title + "\\" + folder + "\\" + name;
 #if defined(PCSX2_DEVBUILD)
 			Console.WriteLn(Color_Cyan, "Using " + name + " from " + mod + " instead.");
-		}
 #endif
+		}
 		std::string final_path = Path::Combine(EmuFolders::PTR2, path);
 
 		// Write bytes from file to memory

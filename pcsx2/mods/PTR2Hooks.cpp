@@ -60,7 +60,7 @@ void PrHookManager::CdctrlMemIntgDecode()
 	vtlb_memSafeReadBytes(FILE_STR_pp + 0x04, &int_name_pp, 0x04);
 
 	//get int path to check if correct pointer or not
-	char buf2[24];
+	char buf2[24] = {};
 	vtlb_memSafeReadBytes(int_name_pp, buf2, sizeof(buf2));
 	std::string int_path = buf2;
 	if (int_path.find("INT") == std::string::npos) //if bad FILE_STR_pp

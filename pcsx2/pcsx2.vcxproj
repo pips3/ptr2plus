@@ -230,6 +230,7 @@
     <ClCompile Include="IopGte.cpp" />
     <ClCompile Include="LayeredSettingsInterface.cpp" />
     <ClCompile Include="LogSink.cpp" />
+    <ClCompile Include="mods\EmuPatches.cpp" />
     <ClCompile Include="mods\P2mTools.cpp" />
     <ClCompile Include="PINE.cpp" />
     <ClCompile Include="FW.cpp" />
@@ -586,6 +587,7 @@
     <ClInclude Include="IPU\mpeg2_vlc.h" />
     <ClInclude Include="LayeredSettingsInterface.h" />
     <ClInclude Include="LogSink.h" />
+    <ClInclude Include="mods\EmuPatches.h" />
     <ClInclude Include="mods\P2mTools.h" />
     <ClInclude Include="mods\PTR2Common.h" />
     <ClInclude Include="PINE.h" />

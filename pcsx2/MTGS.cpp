@@ -15,6 +15,7 @@
 
 #include "PrecompiledHeader.h"
 
+#include "GS/Renderers/Common/GSDevice.h"
 #include "GS.h"
 #include "Gif_Unit.h"
 #include "MTGS.h"
@@ -30,6 +31,7 @@
 #include <list>
 #include <mutex>
 #include <thread>
+#include <pcsx2/mods/EmuPatches.h>
 
 // Uncomment this to enable profiling of the GS RingBufferCopy function.
 //#define PCSX2_GSRING_SAMPLING_STATS
@@ -978,6 +980,12 @@ void MTGS::ResizeDisplayWindow(int width, int height, float scale)
 	RunOnGSThread([width, height, scale]() {
 		GSResizeDisplayWindow(width, height, scale);
 
+		//ptr2plus
+		if (EmuConfig.GS.AspectRatio == AspectRatioType::Stretch)
+		{
+			PTR2AspectRatioSet();
+		}
+
 		// If we're paused, re-present the current frame at the new window size.
 		if (VMManager::GetState() == VMState::Paused)
 			GSPresentCurrentFrame();
@@ -992,6 +1000,12 @@ void MTGS::UpdateDisplayWindow()
 	pxAssertRel(IsOpen(), "MTGS is running");
 	RunOnGSThread([]() {
 		GSUpdateDisplayWindow();
+
+		//ptr2plus
+		if (EmuConfig.GS.AspectRatio == AspectRatioType::Stretch)
+		{
+			PTR2AspectRatioSet();
+		}
 
 		// If we're paused, re-present the current frame at the new window size.
 		if (VMManager::GetState() == VMState::Paused)

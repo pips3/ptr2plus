@@ -1442,6 +1442,7 @@
     <ClCompile Include="mods\PTR2Hooks.cpp">
       <Filter>Mods</Filter>
     </ClCompile>
+    <ClCompile Include="mods\EmuPatches.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Patch.h">
@@ -2387,6 +2388,7 @@
     <ClInclude Include="mods\PTR2Common.h">
       <Filter>Mods</Filter>
     </ClInclude>
+    <ClInclude Include="mods\EmuPatches.h" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuildStep Include="rdebug\deci2.h">

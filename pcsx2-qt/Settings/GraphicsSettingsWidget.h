@@ -35,6 +35,7 @@ Q_SIGNALS:
 	void fullscreenModesChanged(const QStringList& modes);
 
 private Q_SLOTS:
+	void onAspectRatioChange(int index);
 	void onTextureFilteringChange();
 	void onSWTextureFilteringChange();
 	void onRendererChanged(int index);

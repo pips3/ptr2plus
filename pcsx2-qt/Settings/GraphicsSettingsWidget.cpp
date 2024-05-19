@@ -25,6 +25,7 @@
 #include "pcsx2/GS/GS.h"
 #include "pcsx2/GS/GSCapture.h"
 #include "pcsx2/GS/GSUtil.h"
+#include <pcsx2/mods/EmuPatches.h>
 
 struct RendererInfo
 {
@@ -98,6 +99,9 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsDialog* dialog, QWidget* 
 	//////////////////////////////////////////////////////////////////////////
 	SettingWidgetBinder::BindWidgetToEnumSetting(
 		sif, m_ui.aspectRatio, "EmuCore/GS", "AspectRatio", Pcsx2Config::GSOptions::AspectRatioNames, AspectRatioType::RAuto4_3_3_2);
+	connect(
+		m_ui.aspectRatio, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &GraphicsSettingsWidget::onAspectRatioChange);
+
 	SettingWidgetBinder::BindWidgetToEnumSetting(sif, m_ui.fmvAspectRatio, "EmuCore/GS", "FMVAspectRatioSwitch",
 		Pcsx2Config::GSOptions::FMVAspectRatioSwitchNames, FMVAspectRatioSwitchType::Off);
 	SettingWidgetBinder::BindWidgetToIntSetting(sif, m_ui.interlacing, "EmuCore/GS", "deinterlace_mode", DEFAULT_INTERLACE_MODE);
@@ -737,8 +741,12 @@ GraphicsSettingsWidget::GraphicsSettingsWidget(SettingsDialog* dialog, QWidget* 
 			   "If games are broken and you have this option enabled, please disable it first."));
 	}
 }
-
 GraphicsSettingsWidget::~GraphicsSettingsWidget() = default;
+
+void GraphicsSettingsWidget::onAspectRatioChange(int index)
+{
+	PTR2AspectRatioSet(static_cast<AspectRatioType>(index));
+}
 
 void GraphicsSettingsWidget::onTextureFilteringChange()
 {

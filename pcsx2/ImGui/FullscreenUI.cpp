@@ -63,6 +63,7 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include <pcsx2/mods/EmuPatches.h>
 
 using ImGuiManager::s_need_layout_update;
 
@@ -2568,7 +2569,7 @@ void FullscreenUI::SwitchToPTR2Settings()
 	auto lock = GameList::GetLock();
 	const GameList::Entry* entry = GameList::GetEntryForPath(s_current_disc_path.c_str());
 	if (!entry)
-		entry = GameList::GetEntryBySerialAndCRC(s_current_disc_serial.c_str(), s_current_disc_crc);
+		entry = GameList::GetEntryBySerialAndCRC(/*s_current_disc_serial.c_str()*/ "", s_current_disc_crc);
 
 	if (entry)
 		SwitchToPTR2Settings(entry);
@@ -3963,6 +3964,9 @@ void FullscreenUI::DrawGraphicsSettingsPage()
 	MenuHeading("Display");
 	DrawStringListSetting(bsi, "Aspect Ratio", "Selects the aspect ratio to display the game content at.", "EmuCore/GS", "AspectRatio",
 		"Auto 4:3/3:2", Pcsx2Config::GSOptions::AspectRatioNames, Pcsx2Config::GSOptions::AspectRatioNames, 0);
+	//emupatch
+	PTR2AspectRatioSet();
+
 	DrawStringListSetting(bsi, "FMV Aspect Ratio", "Selects the aspect ratio for display when a FMV is detected as playing.", "EmuCore/GS",
 		"FMVAspectRatioSwitch", "Auto 4:3/3:2", Pcsx2Config::GSOptions::FMVAspectRatioSwitchNames,
 		Pcsx2Config::GSOptions::FMVAspectRatioSwitchNames, 0);

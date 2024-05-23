@@ -168,7 +168,7 @@ void PrHookManager::CdctrlMemIntgDecode()
 
 		//replace path with modded file if active mod
 		std::string mod;
-		if (findActiveMod(path, mod))
+		if (GetActiveModFromPath(path, mod))
 		{
 			path = "MOD\\" + int_title + "\\" + folder + "\\" + name;
 #if defined(PCSX2_DEVBUILD)
@@ -317,7 +317,7 @@ void PrHookManager::intReadSub()
 
 		//replace path with modded file if active mod
 		std::string mod;
-		if (findActiveMod(path, mod))
+		if (GetActiveModFromPath(path, mod))
 		{
 			path = "MOD\\" + int_title + "\\" + folder + "\\" + name;
 #if defined(PCSX2_DEVBUILD)

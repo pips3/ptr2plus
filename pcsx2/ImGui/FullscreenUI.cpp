@@ -171,15 +171,19 @@ namespace FullscreenUI
 #endif
 	};
 
+
+	//UNUSED
 	enum class ModMenuPage
 	{
 		Mods,
+		Priority,
 		TexturePacks
 	};
 
 	enum class SettingsPage
 	{
 		Mods,
+		ModPriority,
 		Textures,
 		Quick,
 		Summary,
@@ -310,8 +314,9 @@ namespace FullscreenUI
 	static void SwitchToGameSettings(const GameList::Entry* entry);
 	static void SwitchToGameSettings(const std::string_view& serial, u32 crc);
 
-	static void DrawModMenuWindow();
+	static void DrawModMenuWindow();//UNUSED
 	static void DrawModsPage();
+	static void DrawModsPriorityPage();
 	static void DrawTexturePacksPage();
 
 	static void DrawSettingsWindow(MainWindowType window_type);
@@ -2697,10 +2702,10 @@ void FullscreenUI::DrawModMenuWindow()
 	{
 		static constexpr float ITEM_WIDTH = 25.0f;
 
-		static constexpr const char* global_icons[] = {ICON_FA_SLIDERS_H, ICON_FA_MAGIC};
-		static constexpr ModMenuPage global_pages[] = {ModMenuPage::Mods, ModMenuPage::TexturePacks};
+		static constexpr const char* global_icons[] = {ICON_FA_SLIDERS_H, ICON_FA_SLIDERS_H, ICON_FA_MAGIC};
+		static constexpr ModMenuPage global_pages[] = {ModMenuPage::Mods, ModMenuPage::Priority, ModMenuPage::TexturePacks};
 
-		static constexpr const char* titles[] = {"Mods", "Texture Packs"};
+		static constexpr const char* titles[] = {"Mods", "Mod Priority", "Texture Packs"};
 
 		SettingsInterface* bsi = GetEditingSettingsInterface();
 
@@ -2770,6 +2775,10 @@ void FullscreenUI::DrawModMenuWindow()
 				DrawModsPage();
 				break;
 
+			case ModMenuPage::Priority:
+				DrawModsPriorityPage();
+				break;
+
 			case ModMenuPage::TexturePacks:
 				DrawTexturePacksPage();
 				break;
@@ -2828,6 +2837,69 @@ void FullscreenUI::DrawModsPage()
 		//choices.emplace_back(fmt::format("{} ({})", description, filename), bios_selection == filename);
 		//values.emplace_back(filename);
 
+	}
+	/*
+	MenuHeading("Loading Behaviour");
+
+	 DrawToggleSetting(bsi, ICON_FA_ARROW_DOWN " Prority",
+		"Determines Priority Over Other Installed Mods OR Whatever", "EmuCore", "InhibitScreensaver",
+		true);*/
+
+	EndMenuButtons();
+	//DrawBIOSSettingsPage();
+}
+
+void FullscreenUI::DrawModsPriorityPage()
+{
+	//SettingsInterface* bsi = GetEditingSettingsInterface();
+
+	BeginMenuButtons();
+
+	MenuHeading("Active Mods");
+
+	//ImGuiFullscreen::ChoiceDialogOptions choices;
+	//choices.emplace_back("Automatic", bios_selection.empty());
+
+	//std::vector<std::string> values;
+	//values.push_back("");
+
+	//FileSystem::FindResultsArray results;
+	//FileSystem::FindFiles(EmuFolders::PTR2Mods.c_str(), "*", FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES, &results);
+	std::vector<std::string> mods = GetModsPriorityList();
+	int	mod_count = mods.size();
+	
+	for (int i = 0; i < mod_count; i++)
+	{
+
+		std::string description = "Priority: " + std::to_string(i) + " (0 is highest priority).";
+		//bool state = isModActive(Path::GetFileName(fd.FileName).data());
+
+		if (MenuButton((mods[i]).c_str(), description.c_str()))
+		{
+			ImGuiFullscreen::ChoiceDialogOptions options;
+			options.reserve(mod_count);
+			for (int val = 0; val < mod_count; val++)
+			{
+				options.emplace_back(std::pair(std::to_string(val), false));
+			}
+			std::string title = mods[i] + " Priority"; 
+			OpenChoiceDialog(title.c_str(), false, std::move(options),
+				[modname = mods[i], mod_index = i](
+					s32 index, const std::string& title, bool checked) {
+
+					PriorityListAdjust(modname, index);
+					
+					CloseChoiceDialog();
+				});
+		}
+
+		/* if (ToggleButton((mods[i]).c_str(), description.c_str(), &state, true))
+		{
+			
+		}*/
+		//const std::string_view filename(Path::GetFileName(fd.FileName));
+		//choices.emplace_back(fmt::format("{} ({})", description, filename), bios_selection == filename);
+		//values.emplace_back(filename);
 	}
 	/*
 	MenuHeading("Loading Behaviour");
@@ -2967,7 +3039,7 @@ void FullscreenUI::DrawSettingsWindow(MainWindowType menu_type)
 		//	ICON_FA_FROWN, ICON_FA_MAGIC, ICON_FA_HEADPHONES, ICON_FA_SD_CARD, ICON_FA_GAMEPAD, ICON_FA_BAN};
 		static constexpr const char* ptr2_icons[] = {ICON_FA_SLIDERS_H, ICON_FA_PLUS, ICON_FA_MAGIC,
 			ICON_FA_GAMEPAD};
-		static constexpr const char* mods_icons[] = {ICON_FA_SLIDERS_H, ICON_FA_MAGIC};
+		static constexpr const char* mods_icons[] = {ICON_FA_SLIDERS_H, ICON_FA_SD_CARD, ICON_FA_MAGIC};
 
 		static constexpr SettingsPage pcsx2_settings_pages[] = {SettingsPage::Interface, SettingsPage::BIOS,
 			SettingsPage::Emulation, SettingsPage::Graphics, SettingsPage::Audio, SettingsPage::MemoryCard,
@@ -2980,10 +3052,10 @@ void FullscreenUI::DrawSettingsWindow(MainWindowType menu_type)
 		static constexpr SettingsPage ptr2_pages[] = { SettingsPage::Quick,
 			SettingsPage::Patches, SettingsPage::Cheats, SettingsPage::Controller};
 
-		static constexpr SettingsPage mods_pages[] = {SettingsPage::Mods,
+		static constexpr SettingsPage mods_pages[] = {SettingsPage::Mods, SettingsPage::ModPriority,
 			SettingsPage::Textures};
 
-		static constexpr const char* titles[] = {"Mods","Texture Packs","Quick Settings", "Summary", "Interface Settings", "BIOS Settings", "Emulation Settings",
+		static constexpr const char* titles[] = {"Mods", "Mod Priority", "Texture Packs","Quick Settings", "Summary", "Interface Settings", "BIOS Settings", "Emulation Settings",
 			"Graphics Settings", "Audio Settings", "Memory Card Settings", "Controller Settings", "Hotkey Settings",
 			"Achievements Settings", "Folder Settings", "Advanced Settings", "Patches", "Cheats", "Game Fixes"};
 
@@ -3114,6 +3186,10 @@ void FullscreenUI::DrawSettingsWindow(MainWindowType menu_type)
 			case SettingsPage::Mods:
 				DrawModsPage();
 				break;
+			case SettingsPage::ModPriority:
+				DrawModsPriorityPage();
+				break;
+
 			case SettingsPage::Textures:
 				DrawTexturePacksPage();
 				break;

@@ -8,6 +8,8 @@
 
 #include "PTR2Common.h"
 #include <common/StringUtil.h>
+#include <pcsx2/mods/ActiveMods.h>
+#include <pcsx2/mods/PriorityList.h>
 
 using namespace PTR2;
 
@@ -77,21 +79,40 @@ static_assert(sizeof(FILE_STR) == 0x2C, "FILE_STR struct not packed to 0x2C byte
 static_assert(sizeof(STDAT_DAT) == 0xD0, "STDAT_DAT struct not packed to 0xD0 bytes");
 static_assert(sizeof(olm_struct) == 0x38, "olm_struct struct not packed to 0x38 bytes");
 
-static std::string GetActiveModsFilename()
+enum ModType : u16
 {
-	return Path::Combine(EmuFolders::Cache, "activemods.cache");
-}
-
-static std::string GetModPriorityFilename()
+	isoFile = 0,
+	intAsset = 1,
+	pcsx2Tex = 2
+};
+struct mod_file
 {
-	return Path::Combine(EmuFolders::Cache, "modpriority.cache");
-}
+	std::string path;
+	ModType type;
+	u32 size;
+	u32 pos;
+	bool tmp;
+};
 
-static std::string GetPTR2ModDirectory()
+bool copyStream(FILE* from, FILE* to, int size)
 {
-	return Path::Combine(EmuFolders::PTR2, "/MOD");
-}
+	//streams must be set up at correct positions
 
+	const int buf_size = 4096;
+	u8 buf[buf_size];
+	int total_copied = buf_size;
+	while (size > total_copied)
+	{
+
+		std::fread(&buf, sizeof(buf[0]), buf_size, from);
+		std::fwrite(&buf, sizeof(buf[0]), buf_size, to);
+		total_copied += buf_size;
+	}
+	std::fread(&buf, size + buf_size - total_copied, 1, from);
+	std::fwrite(&buf, size + buf_size - total_copied, 1, to);
+
+	return true;
+}
 bool readBytes(u32& mem, void* dst, u32 size)
 {
 	if (vtlb_memSafeReadBytes(mem, dst, size))
@@ -102,6 +123,10 @@ bool readBytes(u32& mem, void* dst, u32 size)
 	return false;
 }
 
+static std::string GetPTR2ModDirectory()
+{
+	return Path::Combine(EmuFolders::PTR2, "/MOD");
+}
 static std::string GetModFilePath(std::string path)
 {
 	size_t slash = path.find('\\');
@@ -110,298 +135,114 @@ static std::string GetModFilePath(std::string path)
 	std::string mod_file = Path::Combine(mod_dir, path);
 	return mod_file;
 }
-
-//read a single activemod file chunk (path, modname) and return
-bool getActiveMod(FILE* stream, std::string& path, std::string& modname)
+std::string GetPathFromModName(std::string modname)
 {
-	long off = ftell(stream);
-
-	char buf[900];
-	if (fgets(buf, sizeof(buf), stream) == nullptr)
-		return false;
-	path = buf;
-
-	//fgets puts file offset at end for some reason, so reset it:
-	off += path.length() + 1;
-	std::fseek(stream, off, SEEK_SET);
-
-	char buf2[900];
-	if (fgets(buf2, sizeof(buf2), stream) == nullptr)
-		return false;
-	modname = buf2;
-
-	std::fseek(stream, off + modname.length() + 1, SEEK_SET);
-
-	return true;
+	return Path::Combine(EmuFolders::PTR2Mods, modname);
 }
 
-bool isModActive(const std::string mod)
+mod_file GetP2MFile(FILE* stream, p2m_header& hd, int index)
 {
-	const std::string activemods_filename(GetActiveModsFilename());
+	mod_file file;
 
-	const auto fp = FileSystem::OpenManagedCFile(activemods_filename.c_str(), "rb");
-	u16 file_count;
-	if (std::fread(&file_count, 2, 1, fp.get()) != 1)
-		return false;
-
-	//int file_off = sizeof(file_count);
-	for (int i = 0; i < file_count; i++)
+	//read
+	int off = 0; //ftell(stream);
+	std::string path;
+	for (int i = 0; i < index + 1; i++)
 	{
-		std::string active_path;
-		std::string active_mod_name;
-		getActiveMod(fp.get(), active_path, active_mod_name);
-
-		if (active_mod_name == mod)
-		{
-			return true;
-		}
-	}
-	return false;
-
-}
-
-bool GetActiveModFromPath(const std::string path, std::string& mod)
-{
-	const std::string activemods_filename(GetActiveModsFilename());
-
-	const auto fp = FileSystem::OpenManagedCFile(activemods_filename.c_str(), "rb");
-	u16 file_count;
-	if (std::fread(&file_count, 2, 1, fp.get()) != 1)
-		return false;
-
-	for (int i = 0; i < file_count; i++)
-	{
-		std::string active_path;
-		std::string active_mod_name;
-		getActiveMod(fp.get(), active_path, active_mod_name);
-
-		/* std::string active_path_UPPER(active_path);
-		transform(active_path_UPPER.begin(), active_path_UPPER.end(), active_path_UPPER.begin(), ::toupper);
-		std::string path_UPPER(path);
-		transform(path_UPPER.begin(), path_UPPER.end(), path_UPPER.begin(), ::toupper);
-
-		if (active_path_UPPER == path_UPPER)
-		*/
-		if (StringUtil::compareNoCase(active_path, path))
-		{
-			mod = active_mod_name;
-			return true;
-		}
-	}
-	return false;
-}
-
-bool findActiveModPaths(const std::string mod, std::vector<std::string>& paths)
-{
-	const std::string activemods_filename(GetActiveModsFilename());
-
-	const auto fp = FileSystem::OpenManagedCFile(activemods_filename.c_str(), "rb");
-	u16 file_count;
-	if (std::fread(&file_count, 2, 1, fp.get()) != 1)
-		return false;
-
-	for (int i = 0; i < file_count; i++)
-	{
-		std::string active_path;
-		std::string active_mod_name;
-		getActiveMod(fp.get(), active_path, active_mod_name);
-
-		if (active_mod_name == mod)
-		{
-			paths.push_back(active_path);
-		}
-	}
-	return true;
-}
-/*
-bool addActiveModEntry(std::string filename, std::vector<std::string> paths)
-{
-	const std::string activemods_filename(GetActiveModsFilename());
-
-	const auto fp = FileSystem::OpenManagedCFile(activemods_filename.c_str(), "rb+");
-	u16 file_count;
-	if (std::fread(&file_count, 2, 1, fp.get()) != 1)
-		return false;
-
-	std::fseek(fp.get(), 0, SEEK_END);
-	for (std::string path : paths)
-	{
-		fputs(path.c_str(), fp.get());
-		fputc('\0', fp.get());
-		fputs(filename.c_str(), fp.get());
-		fputc('\0', fp.get());
-
-		file_count++;
-	}
-	
-	std::fseek(fp.get(), 0, SEEK_SET);
-	std::fwrite(&file_count, sizeof(file_count), 1, fp.get());
-
-	return true;
-}
-*/
-//path, modname
-bool ActiveModCacheSave(std::vector<std::pair<std::string, std::string>> activeModCache)
-{
-	const std::string activemods_filename(GetActiveModsFilename());
-
-	FileSystem::DeleteFilePath(activemods_filename.c_str());
-
-	auto fp = FileSystem::OpenManagedCFile(activemods_filename.c_str(), "wb");
-
-	u16 file_count = activeModCache.size();
-
-	std::fwrite(&file_count, sizeof(file_count), 1, fp.get());
-	for (int i = 0; i < file_count; i++)
-	{
-		fputs(activeModCache[i].first.c_str(), fp.get());
-		fputc('\0', fp.get());
-		fputs(activeModCache[i].second.c_str(), fp.get());
-		fputc('\0', fp.get());
-	}
-	return true;
-}
-
-std::vector<std::pair<std::string, std::string>> GetActiveModCache()
-{
-	const std::string activemods_filename(GetActiveModsFilename());
-	auto fp = FileSystem::OpenManagedCFile(activemods_filename.c_str(), "rb+");
-	auto stream = fp.get();
-	u16 file_count;
-
-	std::fread(&file_count, sizeof(u16), 1, stream);
-
-	std::vector<std::pair<std::string, std::string>> activeModCache;
-	for (int i = 0; i < file_count; i++)
-	{
-		long off = ftell(stream);
-
-		char buf[900];
+		char buf[50];
+		std::fseek(stream, hd.path_offset + off, SEEK_SET);
 		fgets(buf, sizeof(buf), stream);
-
-		std::string path = buf;
-
-		//fgets puts file offset at end for some reason, so reset it:
+		path = buf;
+		//fgets puts fp to end, so keep track ourselves
 		off += path.length() + 1;
-		std::fseek(stream, off, SEEK_SET);
-
-		char buf2[900];
-		fgets(buf2, sizeof(buf2), stream);
-		std::string modname = buf2;
-
-		std::fseek(stream, off + modname.length() + 1, SEEK_SET);
-
-		std::pair<std::string, std::string> entry(path, modname);
-		activeModCache.push_back(entry);
 	}
-	return activeModCache;
+	file.path = path;
+
+	//read type
+	std::fseek(stream, hd.type_offset + (2 * index), SEEK_SET);
+	ModType type;
+	std::fread(&type, sizeof(u16), 1, stream);
+	file.type = type;
+
+	//read size/pos
+	std::fseek(stream, hd.size_offset + (2 * index), SEEK_SET);
+	u32 size;
+	u32 pos;
+	std::fread(&size, sizeof(u32), 1, stream);
+	std::fread(&pos, sizeof(u32), 1, stream);
+	file.size = size;
+	file.pos = pos;
+
+	file.tmp = false;
+
+	return file;
+}
+std::vector<mod_file> GetP2MFiles(FILE* stream, p2m_header& hd)
+{
+	//make sure at beginning
+	std::fseek(stream, 0, SEEK_SET);
+	std::fread(&hd, 64, 1, stream);
+
+	std::vector<mod_file> files;
+
+	for (int i = 0; i < hd.file_count; i++)
+	{
+		mod_file file = GetP2MFile(stream, hd, i);
+		files.push_back(file);
+	}
+	return files;
+}
+std::vector<mod_file> GetP2MFiles(FILE* stream, std::string modpath)
+{
+	const auto fp = FileSystem::OpenManagedCFile(modpath.c_str(), "rb");
+	p2m_header hd;
+	return GetP2MFiles(stream, hd);
+}
+std::vector<mod_file> GetP2MFiles(std::string modpath)
+{
+	const auto fp = FileSystem::OpenManagedCFile(modpath.c_str(), "rb");
+	p2m_header hd;
+	return GetP2MFiles(fp.get(), hd);
+}
+std::vector<mod_file> GetP2MFilesByModName(std::string modname)
+{
+	std::string filename = GetPathFromModName(modname);
+	return GetP2MFiles(filename);
 }
 
-bool updatePriorityList();
-
-bool ActiveModCacheRemovePath(std::string path)
+mod_file GetP2MFile(FILE* stream, p2m_header& hd, std::string path)
 {
-	std::vector<std::pair<std::string, std::string>> activeModCache = GetActiveModCache();
-	std::vector<std::pair<std::string, std::string>> newActiveModCache;
+	std::fseek(stream, hd.path_offset, SEEK_SET);
 
-	int length = activeModCache.size();
-	for (int i = 0; i < length; i++){
-		if (!StringUtil::compareNoCase(activeModCache[i].first, path))
+	long off = ftell(stream);
+	int i = 0;
+	for (i; i < hd.file_count; i++)
+	{
+		char buf[50];
+		if (fgets(buf, sizeof(buf), stream) != nullptr)
 		{
-			newActiveModCache.push_back(activeModCache[i]);
+			std::string found_path = buf;
+			if (StringUtil::compareNoCase(found_path, path))
+			{
+				break;
+			}
+			//fgets puts fp to end, so reset it;
+			off += path.length() + 1;
+			std::fseek(stream, off, SEEK_SET);
 		}
 	}
 
-	ActiveModCacheSave(newActiveModCache);
-	updatePriorityList();
-
-	return true;
+	return GetP2MFile(stream, hd, i);
 }
-
-bool ActiveModCacheRemoveMod(std::string modname)
+mod_file GetP2MFileByEntry(std::pair<std::string, std::string> entry)
 {
-	std::vector<std::pair<std::string, std::string>> activeModCache = GetActiveModCache();
-	std::vector<std::pair<std::string, std::string>> newActiveModCache;
-
-	int length = activeModCache.size();
-	for (int i = 0; i < length; i++)
-	{
-		if (!StringUtil::compareNoCase(activeModCache[i].second, modname))
-		{
-			newActiveModCache.push_back(activeModCache[i]);
-		}
-	}
-
-	/*
-	//if no more entries for that mod, remove from priority list too
-	if (!isModActive(modname))
-	{
-		PriorityListRemove(modname);
-	}
-	*/
-
-	ActiveModCacheSave(newActiveModCache);
-	updatePriorityList();
-	return true;
+	std::string filename = GetPathFromModName(entry.second);
+	const auto fp = FileSystem::OpenManagedCFile(filename.c_str(), "rb");
+	p2m_header hd;
+	return GetP2MFile(fp.get(), hd, entry.first);
 }
 
-bool ActiveModCacheAdd(std::vector<std::pair<std::string, std::string>> entries){
-
-	std::vector<std::pair<std::string, std::string>> activeModCache = GetActiveModCache();
-	for (std::pair<std::string, std::string> entry : entries)
-	{
-		activeModCache.push_back(entry);
-	}
-	ActiveModCacheSave(activeModCache);
-	return true;
-}
-bool ActiveModCacheAdd(std::pair<std::string, std::string> entry)
-{
-	std::vector<std::pair<std::string, std::string>> activeModCache = GetActiveModCache();
-	activeModCache.push_back(entry);
-	ActiveModCacheSave(activeModCache);
-	return true;
-}
-/*
-bool removeActiveModEntry(std::string mod)
-{
-	const std::string activemods_filename(GetActiveModsFilename());
-
-	auto fp = FileSystem::OpenManagedCFile(activemods_filename.c_str(), "rb");
-	u16 file_count;
-	if (std::fread(&file_count, 2, 1, fp.get()) != 1)
-		return false;
-
-	std::vector<std::string> new_paths;
-	std::vector<std::string> new_filenames;
-	for (int i = 0; i < file_count; i++)
-	{
-		std::string active_path;
-		std::string active_mod_name;
-		getActiveMod(fp.get(), active_path, active_mod_name);
-		if (mod != active_mod_name)
-		{
-			new_paths.push_back(active_path);
-			new_filenames.push_back(active_mod_name);
-		}
-	}
-	fp.reset();
-	FileSystem::DeleteFilePath(activemods_filename.c_str());
-	const auto newfp = FileSystem::OpenManagedCFile(activemods_filename.c_str(), "wb");
-	u16 new_filecount = new_paths.size();
-
-	std::fwrite(&new_filecount, sizeof(new_filecount), 1, newfp.get());
-	for (int i = 0; i < new_filecount; i++)
-	{
-		fputs(new_paths[i].c_str(), newfp.get());
-		fputc('\0', newfp.get());
-		fputs(new_filenames[i].c_str(), newfp.get());
-		fputc('\0', newfp.get());
-	}
-	return true;
-}
-*/
-bool fileFound(u32 mem, std::string filename)
+bool ELFfilenameFound(u32 mem, std::string filename)
 {
 	char dst[24];
 	vtlb_memSafeReadBytes(mem, dst, sizeof(dst));
@@ -416,8 +257,7 @@ bool fileFound(u32 mem, std::string filename)
 
 	return false;
 }
-
-bool pathFound(int& path_off, int& file_off, std::string filename)
+bool ELFpathFound(int& path_off, int& file_off, std::string filename)
 {
 	u32 mem_pointer = 0x0017EF70;
 	//Console.WriteLn("Mem pointer: %u", mem_pointer);
@@ -426,7 +266,7 @@ bool pathFound(int& path_off, int& file_off, std::string filename)
 	for (int i = 0; i < 2; i++) //loop through logo/stmenu structs
 	{
 		readBytes(mem_pointer, &file, sizeof(file));
-		if (fileFound(file.fname_p, filename))
+		if (ELFfilenameFound(file.fname_p, filename))
 		{
 			path_off = file.fname_p;
 			file_off = mem_pointer - sizeof(file);
@@ -439,7 +279,7 @@ bool pathFound(int& path_off, int& file_off, std::string filename)
 	for (int i = 0; i < 10; i++) //loop through ext0X structs
 	{
 		readBytes(mem_pointer, &file, sizeof(file));
-		if (fileFound(file.fname_p, filename))
+		if (ELFfilenameFound(file.fname_p, filename))
 		{
 			path_off = file.fname_p;
 			file_off = mem_pointer - sizeof(file);
@@ -456,7 +296,7 @@ bool pathFound(int& path_off, int& file_off, std::string filename)
 		u32 offsets[4] = {stdat.file1.fname_p, stdat.file2.fname_p, stdat.file3.fname_p, stdat.file4.fname_p};
 		for (int i = 0; i < 4; i++)
 		{
-			if (offsets[i] != 0 && fileFound(offsets[i], filename))
+			if (offsets[i] != 0 && ELFfilenameFound(offsets[i], filename))
 			{
 				path_off = offsets[i];
 				file_off = mem_pointer - 4 - sizeof(file) * (5 - (i + 1));
@@ -465,114 +305,35 @@ bool pathFound(int& path_off, int& file_off, std::string filename)
 
 		}
 
-	} while (!fileFound(stdat.file1.fname_p, "VS08VS0.INT"));
+	} while (!ELFfilenameFound(stdat.file1.fname_p, "VS08VS0.INT"));
 	olm_struct olm;
 
 	do // Loop through OLM structs
 	{
 		readBytes(mem_pointer, &olm, sizeof(olm));
-		if (fileFound(olm.file.fname_p, filename))
+		if (ELFfilenameFound(olm.file.fname_p, filename))
 		{
 			path_off = olm.file.fname_p;
 			file_off = mem_pointer - sizeof(olm);
 			return true;
 		}
 
-	} while (!fileFound(olm.file.fname_p, "STG00.OLM") || !fileFound(olm.stage_name_pos, "TITLE"));
+	} while (!ELFfilenameFound(olm.file.fname_p, "STG00.OLM") || !ELFfilenameFound(olm.stage_name_pos, "TITLE"));
 
 	return false;
 }
 
-bool PatchGamePaths(std::vector<std::string> paths, bool unpatch, std::vector<bool> tmp)
-{
-	for (int i = 0; i < paths.size(); i++)
-	{
-		std::string filename = Path::GetFileName(paths[i]).data();
-		int off = 0;
-		int file_off = 0;
-		if (pathFound(off, file_off, filename))
-		{
-			char patch[24];
-			std::string strpath;
-			if (unpatch)
-			{
-				std::string pathUpper(paths[i]);
-				transform(pathUpper.begin(), pathUpper.end(), pathUpper.begin(), ::toupper);
-				strpath = "host:\\" + pathUpper;
-			}
-			else if (tmp[i])
-			{
-				strpath = "host:\\TMP\\" + filename;
-			}
-			else
-			{
-				strpath = "host:\\MOD\\" + filename;
-			}
-			strncpy(patch, strpath.c_str(), sizeof(patch));
-			vtlb_memSafeWriteBytes(off, patch, sizeof(patch));
-
-			//patch search value
-			char search[1] = {0};
-			vtlb_memSafeWriteBytes(file_off + 3, search, 1);
-			continue;
-		}
-
-		return false;
-	}
-
-	return true;
-}
-
-bool PatchGamePaths(std::vector<std::string> paths, bool unpatch)
-{
-	for (int i = 0; i < paths.size(); i++)
-	{
-		std::string filename = Path::GetFileName(paths[i]).data();
-		int off = 0;
-		int file_off = 0;
-		if (pathFound(off, file_off, filename))
-		{
-			char patch[24];
-			std::string strpath;
-			if (unpatch)
-			{
-				std::string pathUpper(paths[i]);
-				transform(pathUpper.begin(), pathUpper.end(), pathUpper.begin(), ::toupper);
-				strpath = "host:\\" + pathUpper;
-			}
-			else
-			{
-				strpath = "host:\\MOD\\" + filename;
-			}
-			strncpy(patch, strpath.c_str(), sizeof(patch));
-			vtlb_memSafeWriteBytes(off, patch, sizeof(patch));
-
-			//patch search value
-			char search[1] = {0};
-			vtlb_memSafeWriteBytes(file_off + 3, search, 1);
-			continue;
-		}
-
-		return false;
-	}
-
-	return true;
-}
-
-bool PatchGamePaths(std::string path, bool unpatch, bool tmp)
+bool PatchELFPath(std::string path, bool unpatch, bool tmp)
 {
 	std::string filename = Path::GetFileName(path).data();
-	int off = 0;
-	int file_off = 0;
-	if (pathFound(off, file_off, filename))
+	int off, file_off = 0;
+	if (ELFpathFound(off, file_off, filename))
 	{
 		char patch[24];
 		std::string strpath;
 		if (unpatch)
 		{
-			std::string pathUpper(path);
-			transform(pathUpper.begin(), pathUpper.end(), pathUpper.begin(), ::toupper);
-			strpath = "host:\\" + pathUpper;
+			strpath = "host:\\" + StringUtil::toUpper(path);
 		}
 		else if (tmp)
 		{
@@ -592,55 +353,64 @@ bool PatchGamePaths(std::string path, bool unpatch, bool tmp)
 	}
 	return false;
 }
+bool PatchELFPath(mod_file file)
+{
+	return PatchELFPath(file.path, false, file.tmp);
+}
+bool PatchELFPath(std::string path, bool tmp)
+{
+	return PatchELFPath(path, false, tmp);
+}
+bool UnPatchELFPath(mod_file file)
+{
+	return PatchELFPath(file.path, true, false);
+}
+bool UnPatchELFPath(std::string path)
+{
+	return PatchELFPath(path, true, false);
+}
 
+/*
 bool isIntAsset(std::string path)
 {
+	
 	std::string extension = Path::GetExtension(path.data()).data();
 	transform(extension.begin(), extension.end(), extension.begin(), ::toupper);
 	if (extension.find("WP2") == std::string::npos && extension.find("INT") == std::string::npos && extension.find("XTR") == std::string::npos && extension.find("XTR") == std::string::npos)
 		return true;
 	else
 		return false;
+	
 }
-
-
-bool PatchActiveMods()
+*/
+bool ApplyModFile(mod_file file)
 {
-	const std::string activemods_filename(GetActiveModsFilename());
-
-	const auto fp = FileSystem::OpenManagedCFile(activemods_filename.c_str(), "rb");
-	u16 file_count;
-	if (std::fread(&file_count, 2, 1, fp.get()) != 1)
-		return false;
-
-	for (int i = 0; i < file_count; i++)
+	//dont patch files from unpacked INT/XTR files as they aren't in the ISO paths
+	//they are loaded using PTR2Hooks, which will use the activemod cache file
+	if (file.type == isoFile)
 	{
-		char buf[900];
-		if (fgets(buf, sizeof(buf), fp.get()) == nullptr)
-			return false;
-		std::string pathname = buf;
-
-		if (!isIntAsset(pathname))
+		if (!PatchELFPath(file))
 		{
-			if (!PatchGamePaths(pathname, false, false))
-			{
-				return false;
-			}
-		}
-		//necessary to get to next file 
-		char buf2[900];
-		//fgets puts file offset at end for some reason, so reset it:
-		std::fseek(fp.get(), sizeof(file_count) + pathname.length() + 1, SEEK_SET);
-
-		if (fgets(buf2, sizeof(buf2), fp.get()) == nullptr)
 			return false;
-		std::string modname = buf2;
-		//fgets puts file offset at end for some reason, so reset it:
-		std::fseek(fp.get(), sizeof(file_count) + pathname.length() + 1 + modname.length() + 1, SEEK_SET); 
+		}
+	}
+}
+bool StartUpApplyActiveMods()
+{
+	std::vector<std::pair<std::string, std::string>> activeModCache = ActiveMods::GetAll();
+	int file_count = activeModCache.size();
 
+	for (std::pair<std::string, std::string> entry : activeModCache)
+	{
+		mod_file file = GetP2MFileByEntry(entry);
+		if (!ApplyModFile(file))
+		{
+			return false;
+		}
 	}
 	return true;
 }
+
 
 
 bool isInDeleteCache(std::string path)
@@ -654,25 +424,20 @@ bool isInDeleteCache(std::string path)
 
 	for (int i = 0; i < file_count; i++)
 	{
-		std::string active_path;
+		std::string delete_path;
 
 		long off = ftell(fp.get());
 
 		char buf[900];
 		if (fgets(buf, sizeof(buf), fp.get()) == nullptr)
 			return false;
-		active_path = buf;
+		delete_path = buf;
 
 		//fgets puts file offset at end for some reason, so reset it:
-		off += active_path.length() + 1;
+		off += delete_path.length() + 1;
 		std::fseek(fp.get(), off, SEEK_SET);
 
-		std::string active_path_UPPER(active_path);
-		transform(active_path_UPPER.begin(), active_path_UPPER.end(), active_path_UPPER.begin(), ::toupper);
-		std::string path_UPPER(path);
-		transform(path_UPPER.begin(), path_UPPER.end(), path_UPPER.begin(), ::toupper);
-
-		if (Path::GetFileName(active_path_UPPER) == Path::GetFileName(path_UPPER))
+		if (StringUtil::compareNoCase(delete_path, path))
 		{
 			return true;
 		}
@@ -743,6 +508,7 @@ bool removeDeleteEntry(std::string path)
 	}
 	return true;
 }*/
+
 
 //sometimes loading a new mod isnt possible because the current active file is in use by the game
 //instead of stopping the user, we can put the new mod in a TMP folder and tell the game it's there
@@ -815,72 +581,40 @@ bool TryDeleteFiles()
 						//unsure if this would ever actually happen, but handle it anyway
 						newpaths.push_back(pathTMP); //add to delete cache
 					}
+					//could make quicker by storing file type in delete cache file
+					//so I can just check if its an ISO file in here and call PatcHElfPath directly
+					std::string mod;
+					ActiveMods::GetMod(path, mod);
+					std::pair<std::string, std::string> entry(path, mod);
+					mod_file file = GetP2MFileByEntry(entry);
+
+					ApplyModFile(file);
 				}
 				else
 				{
 					//file is still in use, extract it from p2m file again instead
 					std::string mod;
-					GetActiveModFromPath(path, mod);
+					ActiveMods::GetMod(path, mod);
 					std::string modpath = Path::Combine(EmuFolders::PTR2Mods, mod);
+
+					std::pair<std::string, std::string> entry(path, mod);
+					mod_file file = GetP2MFileByEntry(entry);
 
 					const auto fp = FileSystem::OpenManagedCFile(modpath.c_str(), "rb");
 					if (!fp)
 						return false;
 
-					p2m_header hd;
-					if (std::fread(&hd, 64, 1, fp.get()) != 1)
-						return false;
-					std::fseek(fp.get(), hd.path_offset, SEEK_SET);
-
-					int i;
-					bool found = false;
-					for (i = 0; i < hd.file_count; i++)
-					{
-						char buf[50];
-						if (fgets(buf, sizeof(buf), fp.get()) != nullptr)
-						{
-							std::string foundpath = buf;
-							if (foundpath.find(filename) != std::string::npos)
-							{
-								found = true;
-								break;
-							}
-						}
-						//paths.push_back();
-					}
-					if (!found)
-					{
-						//should never happen
-						return false;
-					}
-
-					std::fseek(fp.get(), hd.size_offset + (8 * i), SEEK_SET);
-					int filesize;
-					int filepos;
-					std::fread(&filesize, 4, 1, fp.get());
-					std::fread(&filepos, 4, 1, fp.get());
-
-					std::fseek(fp.get(), filepos, SEEK_SET);
+					std::fseek(fp.get(), file.pos, SEEK_SET);
 
 					const auto newfp = FileSystem::OpenManagedCFile(pathMOD.c_str(), "w+b");
-
-					const int buf_size = 4096;
-					u8 buf[buf_size];
-					int total_copied = buf_size;
-					while (filesize > total_copied)
-					{
-
-						std::fread(&buf, sizeof(buf[0]), buf_size, fp.get());
-						std::fwrite(&buf, sizeof(buf[0]), buf_size, newfp.get());
-						total_copied += buf_size;
-					}
-					std::fread(&buf, filesize + buf_size - total_copied, 1, fp.get());
-					std::fwrite(&buf, filesize + buf_size - total_copied, 1, newfp.get());
+					if (!newfp)
+						return false;
+					copyStream(fp.get(), newfp.get(), file.size);
 
 					newpaths.push_back(pathTMP); //add to delete cache
+
+					ApplyModFile(file);
 				}
-				if (!isIntAsset(pathMOD))
-					PatchGamePaths(pathMOD, false, false);
 			}
 		}
 		//std::string name = Path::GetFileName(path);
@@ -904,380 +638,140 @@ bool TryDeleteFiles()
 	return true;
 }
 
-//returns list of modnames in order from highest to lowest priority (0 first
-std::vector<std::string> GetModsPriorityList()
+bool refreshPriorityList()
 {
-	const std::string modspriority_filename(GetModPriorityFilename());
-
-	auto fp = FileSystem::OpenManagedCFile(modspriority_filename.c_str(), "rb+");
-	u16 file_count;
-	if (std::fread(&file_count, 2, 1, fp.get()) != 1)
-		Console.WriteLn("Error reading modspriority list: bad file count");
-
-	std::vector<std::string> modnames_list;
-	for (int i = 0; i < file_count; i++)
-	{
-		std::string found_mod_name;
-
-		long off = ftell(fp.get());
-
-		char buf[900];
-		if (fgets(buf, sizeof(buf), fp.get()) == nullptr)
-			Console.WriteLn("Error reading modspriority list: bad mod name");
-		found_mod_name = buf;
-
-		//fgets puts file offset at end for some reason, so reset it:
-		off += found_mod_name.length() + 1;
-		std::fseek(fp.get(), off, SEEK_SET);
-
-		modnames_list.push_back(found_mod_name);
-	}
-	fp.reset();
-	return modnames_list;
-}
-bool PriorityListSave(std::vector<std::string> priority_list)
-{
-	const std::string modspriority_filename(GetModPriorityFilename());
-	FileSystem::DeleteFilePath(modspriority_filename.c_str());
-
-	const auto fp = FileSystem::OpenManagedCFile(modspriority_filename.c_str(), "wb");
-	u16 file_count = priority_list.size();
-	std::fwrite(&file_count, sizeof(file_count), 1, fp.get());
-	for (std::string modname : priority_list)
-	{
-		fputs(modname.c_str(), fp.get());
-		fputc('\0', fp.get());
-	}
-	return true;
-}
-bool PriorityListAdd(std::string modname, int index)
-{
-	std::vector<std::string> priority_list = GetModsPriorityList();
-
-	std::vector<std::string> new_priority_list;
-	for (int i = 0; i < priority_list.size() + 1; i++)
-	{
-		if (i == index)
-		{
-			new_priority_list.push_back(modname);
-		}
-		else if (i > index)
-		{
-			new_priority_list.push_back(priority_list[i - 1]);
-		}
-		else //if i < index
-		{
-			new_priority_list.push_back(priority_list[i]);
-		}
-	}
-
-	return PriorityListSave(new_priority_list);
-
-}
-//default add to list at highest priority
-bool PriorityListAdd(std::string modname)
-{
-	return PriorityListAdd(modname, 0);
-}
-
-
-bool PriorityListRemove(std::string modname)
-{
-	std::vector<std::string> priority_list = GetModsPriorityList();
-
-	std::vector<std::string> new_priority_list;
-	for (std::string list_modname : priority_list)
-	{
-		if (modname != list_modname)
-		{
-			new_priority_list.push_back(list_modname);
-		}
-	}
-
-	return PriorityListSave(new_priority_list);
-}
-
-
-bool updatePriorityList()
-{
-	std::vector<std::string> list = GetModsPriorityList();
+	std::vector<std::string> list = PriorityList::Get();
 	for (std::string mod : list)
 	{
-		if (!isModActive(mod))
+		if (!ActiveMods::isModActive(mod))
 		{
-			PriorityListRemove(mod);
+			PriorityList::Remove(mod);
 		}
 	}
 	return true;
 }
 
-std::string GetPathFromModName(std::string modname)
-{
-	return Path::Combine(EmuFolders::PTR2Mods, modname);
-}
 
-std::vector<std::string> GetP2MPaths(FILE* stream, std::string modpath, p2m_header& hd)
-{
-	//make sure at beginning
-	std::fseek(stream, 0, SEEK_SET);
 
-	std::fread(&hd, 64, 1, stream);
-
-	std::fseek(stream, hd.path_offset, SEEK_SET);
-
-	std::vector<std::string> paths;
-	long off = ftell(stream);
-	for (int i = 0; i < hd.file_count; i++)
-	{
-		char buf[50];
-		if (fgets(buf, sizeof(buf), stream) != nullptr)
-		{
-			std::string path = buf;
-			paths.push_back(path);
-			//fgets puts fp to end, so reset it;
-			off += path.length() + 1;
-			std::fseek(stream, off, SEEK_SET);
-		}
-		//paths.push_back();
-	}
-	return paths;
-}
-std::vector<std::string> GetP2MPaths(std::string modpath)
-{
-	const auto fp = FileSystem::OpenManagedCFile(modpath.c_str(), "rb");
-
-	p2m_header hd;
-	std::fread(&hd, 64, 1, fp.get());
-	std::fseek(fp.get(), hd.path_offset, SEEK_SET);
-
-	std::vector<std::string> paths;
-	long off = ftell(fp.get());
-	for (int i = 0; i < hd.file_count; i++)
-	{
-		char buf[50];
-		if (fgets(buf, sizeof(buf), fp.get()) != nullptr)
-		{
-			std::string path = buf;
-			paths.push_back(path);
-			//fgets puts fp to end, so reset it;
-			off += path.length() + 1;
-			std::fseek(fp.get(), off, SEEK_SET);
-		}
-		//paths.push_back();
-	}
-	return paths;
-}
-std::vector<std::string> GetP2MPathsByModName(std::string modname)
-{
-	std::string filename = GetPathFromModName(modname);
-	return GetP2MPaths(filename);
-}
 
 bool disableMod(std::string modname)
 {
 	//get files of mod
-	std::vector<std::string> modpaths;
-	if (!findActiveModPaths(modname, modpaths))
-		return false;
+	std::vector<mod_file> files = GetP2MFilesByModName(modname);
 
 	//delete files from MOD folder
-	for (std::string file : modpaths)
+	for (mod_file file : files)
 	{
-		std::string mod_file = GetModFilePath(file);
+		std::string full_path = GetModFilePath(file.path);
 		
-		if (!FileSystem::DeleteFilePath(mod_file.c_str()))
+		if (!FileSystem::DeleteFilePath(full_path.c_str()))
 		{
-			addDeleteEntry(Path::MakeRelative(mod_file, EmuFolders::PTR2));
+			addDeleteEntry(Path::MakeRelative(file.path, EmuFolders::PTR2));
 			files_to_delete = true;
+		}
+
+		if (file.type == isoFile)
+		{
+			UnPatchELFPath(file.path);
 		}
 	}
 
 	//remove from activemods
-	ActiveModCacheRemoveMod(modname);
+	ActiveMods::RemoveMod(modname);
 	//removeActiveModEntry(modname);
 
 	//remove from prioritylist
-	PriorityListRemove(modname);
-
-	std::vector<std::string> unpatch_paths;
-	for (std::string path : modpaths)
-	{
-		if (!isIntAsset(path))
-		{
-			unpatch_paths.push_back(path);
-		}
-	}
-
-	//remove patched paths from game memory
-	PatchGamePaths(unpatch_paths, true);
+	PriorityList::Remove(modname);
 
 	return true;
 }
 
-bool copyStream(FILE* from, FILE* to, int size)
+
+bool MoveModFile(FILE* stream, mod_file file)
 {
-	//streams must be set up at correct positions
-
-	const int buf_size = 4096;
-	u8 buf[buf_size];
-	int total_copied = buf_size;
-	while (size > total_copied)
-	{
-
-		std::fread(&buf, sizeof(buf[0]), buf_size, from);
-		std::fwrite(&buf, sizeof(buf[0]), buf_size, to);
-		total_copied += buf_size;
-	}
-	std::fread(&buf, size + buf_size - total_copied, 1, from);
-	std::fwrite(&buf, size + buf_size - total_copied, 1, to);
-
-	return true;
-}
-bool moveModFile(FILE* stream, p2m_header hd, std::string path, bool tmp)
-{
-	//get index of the file in the p2m
-
-	std::fseek(stream, hd.path_offset, SEEK_SET);
-
-	std::vector<std::string> paths;
-	long off = ftell(stream);
-	int i = 0;
-	for (i; i < hd.file_count; i++)
-	{
-		char buf[50];
-		if (fgets(buf, sizeof(buf), stream) != nullptr)
-		{
-			std::string found_path = buf;
-			if (StringUtil::compareNoCase(found_path, path))
-			{
-				break;
-			}
-			//fgets puts fp to end, so reset it;
-			off += path.length() + 1;
-			std::fseek(stream, off, SEEK_SET);
-		}
-	}
-
-	std::string mod_file;
-	if (tmp)
-		mod_file = Path::Combine(Path::Combine(EmuFolders::PTR2, "/TMP"), Path::GetFileName(path));
+	std::string real_path;
+	if (file.tmp)
+		real_path = Path::Combine(Path::Combine(EmuFolders::PTR2, "/TMP"), Path::GetFileName(file.path));
 	else
-		mod_file = GetModFilePath(path);
+		real_path = GetModFilePath(file.path);
 
-	std::string mod_path = std::string(Path::GetDirectory(mod_file));
+	std::string real_path_folder = std::string(Path::GetDirectory(real_path));
 
-	//copy file at that index
-	std::fseek(stream, hd.size_offset + (8 * i), SEEK_SET);
-	int filesize, filepos;
-	std::fread(&filesize, 4, 1, stream);
-	std::fread(&filepos, 4, 1, stream);
 
-	std::fseek(stream, filepos, SEEK_SET);
+	std::fseek(stream, file.pos, SEEK_SET);
 
-	FileSystem::EnsureDirectoryExists(mod_path.c_str(), true);
-	const auto newfp = FileSystem::OpenManagedCFile(mod_file.c_str(), "w+b");
+	FileSystem::EnsureDirectoryExists(real_path_folder.c_str(), true);
+	const auto newfp = FileSystem::OpenManagedCFile(real_path.c_str(), "w+b");
 	const auto new_stream = newfp.get();
 
-	return copyStream(stream, new_stream, filesize);
-	
+	return copyStream(stream, new_stream, file.size);
 }
-bool moveAllModFiles(FILE* stream, p2m_header hd, std::vector<std::string> paths, std::vector<bool> tmp)
+
+bool moveAllModFiles(FILE* stream, std::vector<mod_file> files)
 {
-
-	for (int i = 0; i < hd.file_count; i++)
+	for (mod_file file : files)
 	{
-		std::fseek(stream, hd.size_offset + (8 * i), SEEK_SET);
-		int filesize;
-		int filepos;
-		std::fread(&filesize, 4, 1, stream);
-		std::fread(&filepos, 4, 1, stream);
-
-		std::fseek(stream, filepos, SEEK_SET);
-
-		std::string path = paths[i];
-		std::string mod_file;
-		if (tmp[i])
-		{
-			mod_file = Path::Combine(Path::Combine(EmuFolders::PTR2, "/TMP"), Path::GetFileName(path));
-		}
-		else
-		{
-			mod_file = GetModFilePath(path);
-		}
-		std::string mod_path = std::string(Path::GetDirectory(mod_file));
-		FileSystem::EnsureDirectoryExists(mod_path.c_str(), true);
-		const auto newfp = FileSystem::OpenManagedCFile(mod_file.c_str(), "w+b");
-		const auto new_stream = newfp.get();
-
-		copyStream(stream, new_stream, filesize);
+		MoveModFile(stream, file);
 	}
 	return true;
 }
 
 bool disableModEntry(std::string path)
 {
-	ActiveModCacheRemovePath(path);
+	ActiveMods::RemoveEntry(path);
+	refreshPriorityList();
 
 	std::string mod_file = GetModFilePath(path);
 
 	if (!FileSystem::DeleteFilePath(mod_file.c_str()))
 	{
-		addDeleteEntry(Path::MakeRelative(mod_file, EmuFolders::PTR2));
+		addDeleteEntry(path);
 		files_to_delete = true;
 	}
-
-	PatchGamePaths(path, true, false);
+	//could be unpatching unecessarily if its an int asset file
+	//but proooobably still cheaper than fetching the actual file from p2m to check
+	UnPatchELFPath(path); 
 	return true;
 }
+
 bool enableMod(std::string filename)
 {
 	const auto fp = FileSystem::OpenManagedCFile(filename.c_str(), "rb");
 	//get files of mod
-	p2m_header hd;
-	std::vector<std::string> paths = GetP2MPaths(fp.get(), filename, hd);
+	std::vector<mod_file> files = GetP2MFiles(fp.get(), filename);
 
 	//check activemods
 		//if files exist, disable mods associated
-	std::vector<bool> tmp; 
-	for (std::string path : paths)
+	std::string mod = Path::GetFileName(filename).data();
+	for (mod_file file : files)
 	{
 		std::string existing_mod;
-		if (GetActiveModFromPath(path, existing_mod) == true)
+		if (ActiveMods::GetMod(file.path, existing_mod) == true)
 		{
 
 			//disableMod(existing_mod);
-			disableModEntry(path);
+			disableModEntry(file.path);
 			
 			//if file in delete cache, mark it to be put in TMP
-			if (isInDeleteCache(path) && !isIntAsset(path)) //dont count int asset as TMP workaround isnt necessary
+			if (isInDeleteCache(file.path) && file.type != intAsset) //dont count int asset as TMP workaround isnt necessary
 			{
-				tmp.push_back(true);
+				file.tmp = true;
 				continue;
 			}
 		}
-		tmp.push_back(false);
+
+		//move file to MOD folder
+		MoveModFile(fp.get(), file);
+
+		ApplyModFile(file);
+
+		std::pair<std::string, std::string> entry(file.path, mod);
+		ActiveMods::Add(entry);
 	}
-	//move files to MOD
-	moveAllModFiles(fp.get(), hd, paths, tmp);
-
-	//dont patch files from unpacked INT/XTR files as they aren't in the ISO paths
-	//they are loaded using PTR2Hooks, which will use the activemod cache file
-
-	std::vector<std::string> patch_paths;
-	std::vector<bool> patch_tmp;
-	for (int i = 0; i < hd.file_count; i++)
-	{
-		if (!isIntAsset(paths[i]))
-		{
-			patch_paths.push_back(paths[i]);
-			patch_tmp.push_back(tmp[i]);
-		}
-	}
-
-	PatchGamePaths(patch_paths, false, patch_tmp);
 
 	//add to activemods
-	std::string mod = Path::GetFileName(filename).data();
+	
+	/* uncomment this for less file read/writes than the current call in the loop
 	std::vector<std::pair<std::string, std::string>> entries;
 	for (std::string path : paths)
 	{
@@ -1285,13 +779,15 @@ bool enableMod(std::string filename)
 		entries.push_back(entry);
 	}
 	ActiveModCacheAdd(entries);
-	//addActiveModEntry(mod, paths);
+	*/
 
 	//add to prioritylist
-	PriorityListAdd(mod);
+	PriorityList::Push(mod);
 
 	return true;
 }
+
+
 
 bool ApplySingleModEntry(std::string path, std::string modname)
 {
@@ -1303,19 +799,17 @@ bool ApplySingleModEntry(std::string path, std::string modname)
 	if (std::fread(&hd, 64, 1, fp.get()) != 1)
 		return false;
 
-	bool tmp = false;
+	mod_file file = GetP2MFile(fp.get(), hd, path);
+
 	//if file in delete cache, mark it to be put in TMP
-	if (isInDeleteCache(path) && !isIntAsset(path)) //dont count int asset as TMP workaround isnt necessary
+	if (isInDeleteCache(path))
 	{
-		tmp = true;
+		file.tmp = true;
 	}
 
-	moveModFile(fp.get(), hd, path, tmp);
+	MoveModFile(fp.get(), file);
 
-	if (!isIntAsset(path))
-	{
-		PatchGamePaths(path, false, tmp);
-	}
+	ApplyModFile(file);
 
 	return true;
 	
@@ -1323,7 +817,7 @@ bool ApplySingleModEntry(std::string path, std::string modname)
 
 bool RefreshMods() 
 {
-	std::vector<std::string> priorities = GetModsPriorityList();
+	std::vector<std::string> priorities = PriorityList::Get();
 	int mod_count = priorities.size();
 	
 	//get list of mod entries after priorities
@@ -1331,16 +825,16 @@ bool RefreshMods()
 	for (int i = mod_count - 1; i > -1; i--) //iterate lowest priority first
 	{
 		std::string modname = priorities[i];
-		std::vector<std::string> paths = GetP2MPathsByModName(modname);
-		for (std::string path : paths)
+		std::vector<mod_file> files = GetP2MFilesByModName(modname);
+		for (mod_file file : files)
 		{
-			entries.insert_or_assign(path, modname);
+			entries.insert_or_assign(file.path, modname);
 			//entries.push_back(entry);
 		}
 	}
 
 	//remove entries already applied
-	std::vector<std::pair<std::string, std::string>> cache = GetActiveModCache();
+	std::vector<std::pair<std::string, std::string>> cache = ActiveMods::GetAll();
 	for (std::pair<std::string, std::string> entry : cache)
 	{
 		if ( entries[entry.first] == entry.second )
@@ -1348,8 +842,9 @@ bool RefreshMods()
 			entries.erase(entry.first);
 		}
 		else //remove entries we are going to replace
-			ActiveModCacheRemovePath(entry.first);
+			ActiveMods::RemoveEntry(entry.first);
 	}
+	refreshPriorityList();
 
 	//convert map to vector of pairs, so we can access both key and value
 	std::vector<std::pair<std::string, std::string>> new_cache;
@@ -1359,15 +854,15 @@ bool RefreshMods()
 	for (std::pair<std::string, std::string> entry : new_cache)
 	{
 		ApplySingleModEntry(entry.first, entry.second);
-		ActiveModCacheAdd(entry);
+		ActiveMods::Add(entry);
 	}
 	return true;
 }
 
-bool PriorityListAdjust(std::string modname, int newIndex)
+bool AdjustModPriority(std::string modname, int newIndex)
 {
-	PriorityListRemove(modname);
-	PriorityListAdd(modname, newIndex);
+	PriorityList::Remove(modname);
+	PriorityList::Add(modname, newIndex);
 	
 	return RefreshMods();
 }

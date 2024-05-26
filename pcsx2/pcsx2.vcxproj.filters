@@ -1443,6 +1443,8 @@
       <Filter>Mods</Filter>
     </ClCompile>
     <ClCompile Include="mods\EmuPatches.cpp" />
+    <ClCompile Include="mods\ActiveMods.cpp" />
+    <ClCompile Include="mods\PriorityList.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Patch.h">
@@ -2389,6 +2391,8 @@
       <Filter>Mods</Filter>
     </ClInclude>
     <ClInclude Include="mods\EmuPatches.h" />
+    <ClInclude Include="mods\ActiveMods.h" />
+    <ClInclude Include="mods\PriorityList.h" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuildStep Include="rdebug\deci2.h">

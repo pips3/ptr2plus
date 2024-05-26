@@ -1,0 +1,101 @@
+#include <common/Path.h>
+#include <pcsx2/Config.h>
+#include <common/FileSystem.h>
+#include <mods/PriorityList.h>
+
+static std::string PriorityList::GetFilename()
+{
+	return Path::Combine(EmuFolders::Cache, "modpriority.cache");
+}
+
+//returns list of modnames in order from highest to lowest priority (0 first
+std::vector<std::string> PriorityList::Get()
+{
+	const std::string modspriority_filename(GetFilename());
+
+	auto fp = FileSystem::OpenManagedCFile(modspriority_filename.c_str(), "rb+");
+	u16 file_count;
+	if (std::fread(&file_count, 2, 1, fp.get()) != 1)
+		Console.WriteLn("Error reading modspriority list: bad file count");
+
+	std::vector<std::string> modnames_list;
+	for (int i = 0; i < file_count; i++)
+	{
+		std::string found_mod_name;
+
+		long off = ftell(fp.get());
+
+		char buf[900];
+		if (fgets(buf, sizeof(buf), fp.get()) == nullptr)
+			Console.WriteLn("Error reading modspriority list: bad mod name");
+		found_mod_name = buf;
+
+		//fgets puts file offset at end for some reason, so reset it:
+		off += found_mod_name.length() + 1;
+		std::fseek(fp.get(), off, SEEK_SET);
+
+		modnames_list.push_back(found_mod_name);
+	}
+	fp.reset();
+	return modnames_list;
+}
+bool PriorityList::Save(std::vector<std::string> priority_list)
+{
+	const std::string modspriority_filename(GetFilename());
+	FileSystem::DeleteFilePath(modspriority_filename.c_str());
+
+	const auto fp = FileSystem::OpenManagedCFile(modspriority_filename.c_str(), "wb");
+	u16 file_count = priority_list.size();
+	std::fwrite(&file_count, sizeof(file_count), 1, fp.get());
+	for (std::string modname : priority_list)
+	{
+		fputs(modname.c_str(), fp.get());
+		fputc('\0', fp.get());
+	}
+	return true;
+}
+bool PriorityList::Add(std::string modname, int index)
+{
+	std::vector<std::string> priority_list = Get();
+
+	std::vector<std::string> new_priority_list;
+	for (int i = 0; i < priority_list.size() + 1; i++)
+	{
+		if (i == index)
+		{
+			new_priority_list.push_back(modname);
+		}
+		else if (i > index)
+		{
+			new_priority_list.push_back(priority_list[i - 1]);
+		}
+		else //if i < index
+		{
+			new_priority_list.push_back(priority_list[i]);
+		}
+	}
+
+	return Save(new_priority_list);
+}
+//default add to list at highest priority
+bool PriorityList::Push(std::string modname)
+{
+	return Add(modname, 0);
+}
+
+
+bool PriorityList::Remove(std::string modname)
+{
+	std::vector<std::string> priority_list = Get();
+
+	std::vector<std::string> new_priority_list;
+	for (std::string list_modname : priority_list)
+	{
+		if (modname != list_modname)
+		{
+			new_priority_list.push_back(list_modname);
+		}
+	}
+
+	return Save(new_priority_list);
+}

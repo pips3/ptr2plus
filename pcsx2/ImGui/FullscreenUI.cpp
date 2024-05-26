@@ -64,6 +64,8 @@
 #include <utility>
 #include <vector>
 #include <pcsx2/mods/EmuPatches.h>
+#include <pcsx2/mods/ActiveMods.h>
+#include <pcsx2/mods/PriorityList.h>
 
 using ImGuiManager::s_need_layout_update;
 
@@ -2819,7 +2821,7 @@ void FullscreenUI::DrawModsPage()
 
 		//const auto enable_it = std::find(enable_list.begin(), enable_list.end(), pi.name);
 		*/
-		bool state = isModActive(Path::GetFileName(fd.FileName).data());
+		bool state = ActiveMods::isModActive(Path::GetFileName(fd.FileName).data());
 		if (ToggleButton((title + " by " + author).c_str(), description.c_str(), &state, true))
 		{
 			if (state)
@@ -2865,7 +2867,7 @@ void FullscreenUI::DrawModsPriorityPage()
 
 	//FileSystem::FindResultsArray results;
 	//FileSystem::FindFiles(EmuFolders::PTR2Mods.c_str(), "*", FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES, &results);
-	std::vector<std::string> mods = GetModsPriorityList();
+	std::vector<std::string> mods = PriorityList::Get();
 	int	mod_count = mods.size();
 	
 	for (int i = 0; i < mod_count; i++)
@@ -2887,7 +2889,7 @@ void FullscreenUI::DrawModsPriorityPage()
 				[modname = mods[i], mod_index = i](
 					s32 index, const std::string& title, bool checked) {
 
-					PriorityListAdjust(modname, index);
+					AdjustModPriority(modname, index);
 					
 					CloseChoiceDialog();
 				});

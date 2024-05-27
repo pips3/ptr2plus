@@ -159,9 +159,6 @@ bool readBytes(u32& mem, void* dst, u32 size)
 }
 bool toggleTexReplacementSetting(bool new_value)
 {
-	//return true;
-	// IT doesnt work for some reason :((
-	
 	std::string section = "EmuCore/GS";
 	std::string key = "LoadTextureReplacements";
 
@@ -174,8 +171,6 @@ bool toggleTexReplacementSetting(bool new_value)
 	else
 	{
 		bsi->SetBoolValue(section.c_str(), key.c_str(), new_value);
-		//SetSettingsChanged(bsi);
-		//s_settings_changed.store(true, std::memory_order_release);
 		Host::RunOnCPUThread([]() { VMManager::ApplySettings(); });
 	}
 	
@@ -219,17 +214,6 @@ bool LoadTexFiles(std::string modname)
 	if (FileSystem::DirectoryExists(destination_folder.c_str())) //already loaded
 		return true;
 
-	/* FileSystem::FindResultsArray results;
-	FileSystem::FindFiles(source_folder.c_str(), "*", FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES, &results);
-	
-	std::string unloadedPath = Path::Combine(EmuFolders::Textures, "/ptr2real/unloaded");
-	for (const FILESYSTEM_FIND_DATA& fd : results)
-	{
-		std::string path = fd.FileName;
-		std::string relpath = Path::MakeRelative(path, unloadedPath);
-		std::string newpath = Path::Combine(replacementsPath, relpath);
-		FileSystem::RenamePath(path.c_str(), newpath.c_str());
-	}*/
 	std::string replacementsPath = Path::Combine(EmuFolders::Textures, "/ptr2real/replacements");
 	FileSystem::EnsureDirectoryExists(replacementsPath.c_str(), true);
 	FileSystem::RenamePath(source_folder.c_str(), destination_folder.c_str());
@@ -249,23 +233,10 @@ bool UnloadTexFiles(std::string modname)
 	if (FileSystem::DirectoryExists(destination_folder.c_str())) //already unloaded
 		return true;
 
-	/* FileSystem::FindResultsArray results;
-	FileSystem::FindFiles(source_folder.c_str(), "*", FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES, &results);
-	std::string replacementsPath = Path::Combine(EmuFolders::Textures, "/ptr2real/replacements");
-	
-	for (const FILESYSTEM_FIND_DATA& fd : results)
-	{
-		std::string path = fd.FileName;
-		std::string relpath = Path::MakeRelative(path, replacementsPath);
-		std::string newpath = Path::Combine(unloadedPath, relpath);
-		FileSystem::RenamePath(path.c_str(), newpath.c_str());
-	}*/
-	//FileSystem::RenamePath
 	std::string unloadedPath = Path::Combine(EmuFolders::Textures, "/ptr2real/unloaded");
 	FileSystem::EnsureDirectoryExists(unloadedPath.c_str(), true);
 	FileSystem::RenamePath(source_folder.c_str(), destination_folder.c_str());
 	
-
 	//if all textures are unloaded, turn texture replacements off
 	if (FileSystem::DirectoryIsEmpty(Path::Combine(EmuFolders::Textures, "/ptr2real/replacements").c_str()))
 	{

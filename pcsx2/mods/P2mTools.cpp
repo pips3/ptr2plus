@@ -10,13 +10,16 @@
 #include <common/StringUtil.h>
 #include <pcsx2/mods/ActiveMods.h>
 #include <pcsx2/mods/PriorityList.h>
-
+#include <pcsx2/Host.h>
+#include <pcsx2/VMManager.h>
+#include "common/SettingsInterface.h"
 using namespace PTR2;
 
 bool files_to_delete;
 #pragma pack(push, 1)
 
-struct p2m_header
+//backwards compatiblity
+struct p2m_header_v1 //v1, v2
 {
 	char p2m_magic[4];
 	u16 version;
@@ -33,6 +36,31 @@ struct p2m_header
 	u32 body_offset;
 	u32 body_size;
 	char reserved2[8]; 
+};
+
+struct p2m_header //v3
+{
+	char p2m_magic[4];
+	u16 version;
+	char reserved[2];
+	u32 file_count;
+	u32 tex_file_count;
+	u32 meta_offset;
+	u32 meta_size;
+	u32 path_offset;
+	u32 path_size;
+	u32 type_offset;
+	u32 type_size;
+	u32 size_offset;
+	u32 size_size;
+	u32 body_offset;
+	u32 body_size;
+	u32 tex_path_offset;
+	u32 tex_path_size;
+	u32 tex_size_offset;
+	u32 tex_size_size;
+	u32 tex_body_offset;
+	u32 tex_body_size;
 };
 
 #pragma pack(pop)
@@ -61,7 +89,6 @@ struct olm_struct
 	u32 stage_name_pos; //if TITLE end
 };
 
-
 /*
 file map
 0007ff70 RAM: 0017EF70
@@ -73,7 +100,8 @@ FILE_STR EXT00 - EXT09 wp2
 
 */
 
-static_assert(sizeof(p2m_header) == 64, "p2m_header struct not packed to 64 bytes");
+static_assert(sizeof(p2m_header_v1) == 64, "p2m_header_v1 struct not packed to 64 bytes");
+static_assert(sizeof(p2m_header) == 0x50, "p2m_header_v3 struct not packed to 0x50 bytes");
 static_assert(sizeof(sceCdlFILE) == 0x24, "sceCdlFILE struct not packed to 0x24 bytes");
 static_assert(sizeof(FILE_STR) == 0x2C, "FILE_STR struct not packed to 0x2C bytes");
 static_assert(sizeof(STDAT_DAT) == 0xD0, "STDAT_DAT struct not packed to 0xD0 bytes");
@@ -83,7 +111,7 @@ enum ModType : u16
 {
 	isoFile = 0,
 	intAsset = 1,
-	pcsx2Tex = 2
+	//pcsx2Tex = 2
 };
 struct mod_file
 {
@@ -92,6 +120,13 @@ struct mod_file
 	u32 size;
 	u32 pos;
 	bool tmp;
+};
+
+struct tex_file
+{
+	std::string path;
+	u32 size;
+	u32 pos;
 };
 
 bool copyStream(FILE* from, FILE* to, int size)
@@ -122,10 +157,44 @@ bool readBytes(u32& mem, void* dst, u32 size)
 	}
 	return false;
 }
+bool toggleTexReplacementSetting(bool new_value)
+{
+	//return true;
+	// IT doesnt work for some reason :((
+	
+	std::string section = "EmuCore/GS";
+	std::string key = "LoadTextureReplacements";
+
+	SettingsInterface* bsi = Host::Internal::GetBaseSettingsLayer();
+	bool value = bsi->GetBoolValue(section.c_str(), key.c_str(), false);
+	if (value == new_value)
+	{
+		return true;
+	}
+	else
+	{
+		bsi->SetBoolValue(section.c_str(), key.c_str(), new_value);
+		//SetSettingsChanged(bsi);
+		//s_settings_changed.store(true, std::memory_order_release);
+		Host::RunOnCPUThread([]() { VMManager::ApplySettings(); });
+	}
+	
+}
 
 static std::string GetPTR2ModDirectory()
 {
 	return Path::Combine(EmuFolders::PTR2, "/MOD");
+}
+static std::string GetTexReplacementDirectory(std::string modname)
+{
+	int priority;
+	PriorityList::GetPriority(modname, priority);
+	std::string folder_name = std::to_string(priority) + "_" + modname;
+	return Path::Combine(Path::Combine(EmuFolders::Textures, "/ptr2real/replacements"), folder_name);
+}
+static std::string GetTexUnloadDirectory(std::string modname)
+{
+	return Path::Combine(Path::Combine(EmuFolders::Textures, "/ptr2real/unloaded"), modname);
 }
 static std::string GetModFilePath(std::string path)
 {
@@ -140,6 +209,191 @@ std::string GetPathFromModName(std::string modname)
 	return Path::Combine(EmuFolders::PTR2Mods, modname);
 }
 
+bool LoadTexFiles(std::string modname)
+{
+	std::string source_folder = GetTexUnloadDirectory(modname);
+	std::string destination_folder = GetTexReplacementDirectory(modname);
+
+	if (!FileSystem::DirectoryExists(source_folder.c_str())) //error
+		return false;
+	if (FileSystem::DirectoryExists(destination_folder.c_str())) //already loaded
+		return true;
+
+	/* FileSystem::FindResultsArray results;
+	FileSystem::FindFiles(source_folder.c_str(), "*", FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES, &results);
+	
+	std::string unloadedPath = Path::Combine(EmuFolders::Textures, "/ptr2real/unloaded");
+	for (const FILESYSTEM_FIND_DATA& fd : results)
+	{
+		std::string path = fd.FileName;
+		std::string relpath = Path::MakeRelative(path, unloadedPath);
+		std::string newpath = Path::Combine(replacementsPath, relpath);
+		FileSystem::RenamePath(path.c_str(), newpath.c_str());
+	}*/
+	std::string replacementsPath = Path::Combine(EmuFolders::Textures, "/ptr2real/replacements");
+	FileSystem::EnsureDirectoryExists(replacementsPath.c_str(), true);
+	FileSystem::RenamePath(source_folder.c_str(), destination_folder.c_str());
+
+	//if texture replacements setting is off, turn it on
+	toggleTexReplacementSetting(true);
+
+	return true;
+}
+bool UnloadTexFiles(std::string modname)
+{
+	std::string source_folder = GetTexReplacementDirectory(modname);
+	std::string destination_folder = GetTexUnloadDirectory(modname);
+
+	if (!FileSystem::DirectoryExists(source_folder.c_str()))
+		return false; //there were no tex replacements?
+	if (FileSystem::DirectoryExists(destination_folder.c_str())) //already unloaded
+		return true;
+
+	/* FileSystem::FindResultsArray results;
+	FileSystem::FindFiles(source_folder.c_str(), "*", FILESYSTEM_FIND_FILES | FILESYSTEM_FIND_HIDDEN_FILES, &results);
+	std::string replacementsPath = Path::Combine(EmuFolders::Textures, "/ptr2real/replacements");
+	
+	for (const FILESYSTEM_FIND_DATA& fd : results)
+	{
+		std::string path = fd.FileName;
+		std::string relpath = Path::MakeRelative(path, replacementsPath);
+		std::string newpath = Path::Combine(unloadedPath, relpath);
+		FileSystem::RenamePath(path.c_str(), newpath.c_str());
+	}*/
+	//FileSystem::RenamePath
+	std::string unloadedPath = Path::Combine(EmuFolders::Textures, "/ptr2real/unloaded");
+	FileSystem::EnsureDirectoryExists(unloadedPath.c_str(), true);
+	FileSystem::RenamePath(source_folder.c_str(), destination_folder.c_str());
+	
+
+	//if all textures are unloaded, turn texture replacements off
+	if (FileSystem::DirectoryIsEmpty(Path::Combine(EmuFolders::Textures, "/ptr2real/replacements").c_str()))
+	{
+		toggleTexReplacementSetting(false);
+	}
+
+	return true;
+}
+
+bool PriorityRemove(std::string modname)
+{
+	std::vector<std::string> priorities = PriorityList::Get();
+	for (std::string mod : priorities)
+	{
+		UnloadTexFiles(mod);
+	}
+	PriorityList::Remove(modname);
+	priorities = PriorityList::Get();
+	for (std::string mod : priorities)
+	{
+		LoadTexFiles(mod);
+	}
+	return true;
+}
+bool PriorityAdd(std::string modname, int newIndex)
+{
+	std::vector<std::string> priorities = PriorityList::Get();
+	for (std::string mod : priorities)
+	{
+		UnloadTexFiles(mod);
+	}
+	PriorityList::Add(modname, newIndex);
+	priorities = PriorityList::Get();
+	for (std::string mod : priorities)
+	{
+		LoadTexFiles(mod);
+	}
+	return true;
+}
+bool PriorityPush(std::string modname, bool dontLoadTex)
+{
+	std::vector<std::string> priorities = PriorityList::Get();
+	for (std::string mod : priorities)
+	{
+		UnloadTexFiles(mod);
+	}
+	PriorityList::Push(modname);
+	priorities = PriorityList::Get();
+	for (std::string mod : priorities)
+	{
+		if (mod == modname && dontLoadTex)
+			continue;
+		else
+			LoadTexFiles(mod);
+	}
+	return true;
+}
+
+//unused, left as a POC - see comments in parseP2MHeader
+void parseP2Mv1(p2m_header_v1& hd_v1, p2m_header& hd)
+{
+	hd.p2m_magic[0] = 0x50;
+	hd.p2m_magic[1] = 0x32;
+	hd.p2m_magic[2] = 0x4D;
+	hd.p2m_magic[3] = 0x11;
+	hd.version = hd_v1.version;
+	hd.reserved[0] = 0;
+	hd.reserved[1] = 0;
+	hd.file_count = hd_v1.file_count;
+	hd.tex_file_count = 0;
+	hd.meta_offset = hd_v1.meta_offset;
+	hd.meta_size = hd_v1.meta_size;
+	hd.path_offset = hd_v1.path_offset;
+	hd.path_size = hd_v1.path_size;
+	hd.type_offset = hd_v1.type_offset;
+	hd.type_size = hd_v1.type_size;
+	hd.size_offset = hd_v1.size_offset;
+	hd.size_size = hd_v1.size_size;
+	hd.body_offset = hd_v1.body_offset;
+	hd.body_size = hd_v1.body_size;
+	hd.tex_path_offset = 0;
+	hd.tex_path_size = 0;
+	hd.tex_size_offset = 0;
+	hd.tex_size_size = 0;
+	hd.tex_body_offset = 0;
+	hd.tex_body_size = 0;
+	return;
+}
+bool parseP2MHeader(FILE* stream, p2m_header& hd)
+{
+	//make sure at beginning of file
+	std::fseek(stream, 0, SEEK_SET);
+
+	u32 p2m_magic;
+	std::fread(&p2m_magic, 4, 1, stream);
+	if (p2m_magic != 290271824) //its not a p2m file!!!
+		return false;
+	u16 p2m_version;
+	std::fread(&p2m_version, 2, 1, stream);
+
+	if (p2m_version < 3) //backwards compatibility
+	{
+		return false;
+		//p2m v1, v2 have a bug where all file.type are put down as 0
+		//a workaround could be made with manually reading the file extensions from the path
+		//however v1,v2 are indev p2m versions so supporting these isnt necessary
+		
+		//commented out below is how v1,v2 would be parsed if the bug didnt exist
+		//left as a proof of concept for how we will deal with backwards compatibility in the future
+		/*
+		p2m_header_v1 hd_v1;
+		std::fseek(stream, 0, SEEK_SET);
+		std::fread(&hd_v1, sizeof(p2m_header_v1), 1, stream);
+		parseP2Mv1(hd_v1, hd);
+		*/
+	}
+	else if (p2m_version > 3) //FUTURE! FUUTUUURE! FUUUUTUUUURE!
+	{
+		return false;
+	}
+	else
+	{
+		std::fseek(stream, 0, SEEK_SET);
+		std::fread(&hd, sizeof(p2m_header), 1, stream);
+	}
+	return true;
+}
+
 mod_file GetP2MFile(FILE* stream, p2m_header& hd, int index)
 {
 	mod_file file;
@@ -149,7 +403,7 @@ mod_file GetP2MFile(FILE* stream, p2m_header& hd, int index)
 	std::string path;
 	for (int i = 0; i < index + 1; i++)
 	{
-		char buf[50];
+		char buf[999];
 		std::fseek(stream, hd.path_offset + off, SEEK_SET);
 		fgets(buf, sizeof(buf), stream);
 		path = buf;
@@ -179,9 +433,7 @@ mod_file GetP2MFile(FILE* stream, p2m_header& hd, int index)
 }
 std::vector<mod_file> GetP2MFiles(FILE* stream, p2m_header& hd)
 {
-	//make sure at beginning
-	std::fseek(stream, 0, SEEK_SET);
-	std::fread(&hd, 64, 1, stream);
+	parseP2MHeader(stream, hd);
 
 	std::vector<mod_file> files;
 
@@ -218,7 +470,7 @@ mod_file GetP2MFile(FILE* stream, p2m_header& hd, std::string path)
 	int i = 0;
 	for (i; i < hd.file_count; i++)
 	{
-		char buf[50];
+		char buf[999];
 		if (fgets(buf, sizeof(buf), stream) != nullptr)
 		{
 			std::string found_path = buf;
@@ -234,12 +486,49 @@ mod_file GetP2MFile(FILE* stream, p2m_header& hd, std::string path)
 
 	return GetP2MFile(stream, hd, i);
 }
+
 mod_file GetP2MFileByEntry(std::pair<std::string, std::string> entry)
 {
 	std::string filename = GetPathFromModName(entry.second);
 	const auto fp = FileSystem::OpenManagedCFile(filename.c_str(), "rb");
 	p2m_header hd;
+	parseP2MHeader(fp.get(), hd);
 	return GetP2MFile(fp.get(), hd, entry.first);
+}
+
+std::vector<tex_file> GetP2MTexFiles(FILE* stream, p2m_header& hd)
+{
+	std::vector<tex_file> tex_files;
+
+	for (int i = 0; i < hd.tex_file_count; i++)
+	{
+		tex_file tex_file;
+		//read
+		int off = 0; //ftell(stream);
+		std::string path;
+		for (int i2 = 0; i2 < i + 1; i2++)
+		{
+			char buf[999];
+			std::fseek(stream, hd.tex_path_offset + off, SEEK_SET);
+			fgets(buf, sizeof(buf), stream);
+			path = buf;
+			//fgets puts fp to end, so keep track ourselves
+			off += path.length() + 1;
+		}
+		tex_file.path = path;
+
+		//read size/pos
+		std::fseek(stream, hd.tex_size_offset + (8 * i), SEEK_SET);
+		u32 size;
+		u32 pos;
+		std::fread(&size, sizeof(u32), 1, stream);
+		std::fread(&pos, sizeof(u32), 1, stream);
+		tex_file.size = size;
+		tex_file.pos = pos;
+
+		tex_files.push_back(tex_file);
+	}
+	return tex_files;
 }
 
 bool ELFfilenameFound(u32 mem, std::string filename)
@@ -402,16 +691,22 @@ bool StartUpApplyActiveMods()
 
 	for (std::pair<std::string, std::string> entry : activeModCache)
 	{
-		mod_file file = GetP2MFileByEntry(entry);
-		if (!ApplyModFile(file))
+		if (entry.first == "textureREPLACEMENTS")
 		{
-			return false;
+			LoadTexFiles(entry.second);
 		}
+		else
+		{
+			mod_file file = GetP2MFileByEntry(entry);
+			if (!ApplyModFile(file))
+			{
+				return false;
+			}
+		}
+		
 	}
 	return true;
 }
-
-
 
 bool isInDeleteCache(std::string path)
 {
@@ -508,7 +803,6 @@ bool removeDeleteEntry(std::string path)
 	}
 	return true;
 }*/
-
 
 //sometimes loading a new mod isnt possible because the current active file is in use by the game
 //instead of stopping the user, we can put the new mod in a TMP folder and tell the game it's there
@@ -645,14 +939,11 @@ bool refreshPriorityList()
 	{
 		if (!ActiveMods::isModActive(mod))
 		{
-			PriorityList::Remove(mod);
+			PriorityRemove(mod);
 		}
 	}
 	return true;
 }
-
-
-
 
 bool disableMod(std::string modname)
 {
@@ -680,12 +971,42 @@ bool disableMod(std::string modname)
 	ActiveMods::RemoveMod(modname);
 	//removeActiveModEntry(modname);
 
-	//remove from prioritylist
-	PriorityList::Remove(modname);
+	//remove from prioritylist (also unloads texs
+	PriorityRemove(modname);
 
 	return true;
 }
 
+bool MoveTexFiles(FILE* stream, std::string modname, std::vector<tex_file> tex_files)
+{
+	//check if textures have been copied from the p2m before, and are currently unloaded
+	std::string unload_folder = GetTexUnloadDirectory(modname);
+	if (FileSystem::DirectoryExists(unload_folder.c_str()))
+	{
+		return LoadTexFiles(modname);
+	}
+
+	//otherwise, copy texture files from the p2m
+	std::string destination_folder = GetTexReplacementDirectory(modname);
+	FileSystem::EnsureDirectoryExists(destination_folder.c_str(), true);
+
+	for (tex_file file : tex_files)
+	{
+		std::fseek(stream, file.pos, SEEK_SET);
+
+		std::string destination_file = Path::Combine(destination_folder, file.path);
+	
+		const auto newfp = FileSystem::OpenManagedCFile(destination_file.c_str(), "w+b");
+		const auto new_stream = newfp.get();
+
+		copyStream(stream, new_stream, file.size);
+	}
+
+	//if texture replacements setting is off, turn it on
+	toggleTexReplacementSetting(true);
+
+	return true;
+}
 
 bool MoveModFile(FILE* stream, mod_file file)
 {
@@ -737,8 +1058,9 @@ bool disableModEntry(std::string path)
 bool enableMod(std::string filename)
 {
 	const auto fp = FileSystem::OpenManagedCFile(filename.c_str(), "rb");
+	p2m_header hd;
 	//get files of mod
-	std::vector<mod_file> files = GetP2MFiles(fp.get(), filename);
+	std::vector<mod_file> files = GetP2MFiles(fp.get(), hd);
 
 	//check activemods
 		//if files exist, disable mods associated
@@ -782,12 +1104,24 @@ bool enableMod(std::string filename)
 	*/
 
 	//add to prioritylist
-	PriorityList::Push(mod);
+	PriorityPush(mod, true);
 
+	//if there are texture replacements
+	if (hd.tex_file_count > 0)
+	{
+		//apply tex files
+		std::vector<tex_file> tex_files = GetP2MTexFiles(fp.get(), hd);
+
+		//load tex files
+		MoveTexFiles(fp.get(), mod, tex_files);
+
+		//add special activemods entry for tex files
+		std::pair<std::string, std::string> entry("textureREPLACEMENTS", mod);
+		ActiveMods::Add(entry);
+	}
+	
 	return true;
 }
-
-
 
 bool ApplySingleModEntry(std::string path, std::string modname)
 {
@@ -796,8 +1130,7 @@ bool ApplySingleModEntry(std::string path, std::string modname)
 	const auto fp = FileSystem::OpenManagedCFile(modpath.c_str(), "rb");
 	//get files of mod
 	p2m_header hd;
-	if (std::fread(&hd, 64, 1, fp.get()) != 1)
-		return false;
+	parseP2MHeader(fp.get(), hd);
 
 	mod_file file = GetP2MFile(fp.get(), hd, path);
 
@@ -837,6 +1170,10 @@ bool RefreshMods()
 	std::vector<std::pair<std::string, std::string>> cache = ActiveMods::GetAll();
 	for (std::pair<std::string, std::string> entry : cache)
 	{
+		if (entry.first == "textureREPLACEMENTS") //leave texture replacement entries in
+		{
+			continue;
+		}
 		if ( entries[entry.first] == entry.second )
 		{
 			entries.erase(entry.first);
@@ -856,14 +1193,14 @@ bool RefreshMods()
 		ApplySingleModEntry(entry.first, entry.second);
 		ActiveMods::Add(entry);
 	}
+
 	return true;
 }
 
 bool AdjustModPriority(std::string modname, int newIndex)
 {
-	PriorityList::Remove(modname);
-	PriorityList::Add(modname, newIndex);
-	
+	PriorityRemove(modname);
+	PriorityAdd(modname, newIndex);
 	return RefreshMods();
 }
 
@@ -877,7 +1214,7 @@ bool IsP2M(const char* filename, std::string& title, std::string& author, std::s
 
 	p2m_header hd;
 
-	if (std::fread(&hd, 64, 1, fp.get()) != 1)
+	if (!parseP2MHeader(fp.get(), hd))
 		return false;
 	if (std::strncmp(hd.p2m_magic, p2m_magic, 4) != 0)
 		return false; //if magic not found, return false

@@ -2888,6 +2888,8 @@ void FullscreenUI::DrawModsPriorityPage()
 			OpenChoiceDialog(title.c_str(), false, std::move(options),
 				[modname = mods[i], mod_index = i](
 					s32 index, const std::string& title, bool checked) {
+					if (index < 0)
+						return;
 
 					AdjustModPriority(modname, index);
 					

@@ -16,7 +16,7 @@ std::vector<std::string> PriorityList::Get()
 
 	auto fp = FileSystem::OpenManagedCFile(modspriority_filename.c_str(), "rb+");
 	if (!fp)
-		Console.WriteLn("Error reading modspriority list - Is something else accessing it?");;
+		Console.WriteLn("Error reading modspriority list - Is something else accessing it?");
 	u16 file_count;
 	if (std::fread(&file_count, 2, 1, fp.get()) != 1)
 		Console.WriteLn("Error reading modspriority list: bad file count");

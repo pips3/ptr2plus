@@ -1698,7 +1698,8 @@ void recompileNextInstruction(bool delayslot, bool swapped_delay_slot)
 	if (EmuConfig.EnablePatches)
 		Patch::ApplyDynamicPatches(pc);
 
-	PrHookMgr()->RunHooks(pc);
+	//if (!PrHookMgr()->CheckAsync(pc))
+		PrHookMgr()->RunHooks(pc);
 
 	// add breakpoint
 	if (!delayslot)

@@ -1,12 +1,14 @@
 #pragma once
 
 #include "Common.h"
+#include <unordered_set>
 
 typedef void (*hookFunc_t)();
 typedef u32 u_adr;
 
 namespace PTR2
 {
+
 	enum FILE_TYPE_ENUM
 	{
 		FT_NONE = 0,
@@ -43,6 +45,14 @@ namespace PTR2
 	static_assert(sizeof(PACKINT_FILE_STR) == 0x20, "PACKINT_FILE_STR struct is not 0x20 bytes");
 }
 
+struct savedRegs
+{
+	u32 r0, at, v0, v1, a0, a1, a2, a3,
+		t0, t1, t2, t3, t4, t5, t6, t7,
+		s0, s1, s2, s3, s4, s5, s6, s7,
+		t8, t9, k0, k1, gp, sp, s8, ra;
+};
+
 class PrHookManager
 {
 	DeclareNoncopyableObject(PrHookManager);
@@ -53,17 +63,30 @@ public:
 
 	void InitHooks();
 	bool RunHooks(const u32 curPC);
+	bool RunHooksAsyncbbad(const u32 curPC);
+	bool RunHooksAsync(const u32 curPC);
+	bool CheckAsync(const u32 curPC);
+	
 
 	/* Hooks */
 	static void CdctrlMemIntgDecode();
 	static void intReadSub();
 
+	//try just saving a0?
+	static void CaptureReg();
+
 private:
+
+	
+
 	u32  m_gameHash;
 	bool m_hooksInit;
 
+	
+
 	std::unordered_map<u32, hookFunc_t> m_hookMap;
 	std::unordered_map<u32, u32>        m_returnMap;
+	std::unordered_set<u32> m_returnSet;
 };
 
 PrHookManager* PrHookMgr();

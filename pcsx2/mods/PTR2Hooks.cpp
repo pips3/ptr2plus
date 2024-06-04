@@ -8,6 +8,7 @@
 #include <VMManager.h>
 
 #include <common/Path.h>
+#include <common/Error.h>
 #include <common/FileSystem.h>
 
 #include "x86/iR5900.h"
@@ -40,7 +41,7 @@ void PrHookManager::InitHooks()
 void PrHookManager::CdctrlMemIntgDecode()
 {
 #if defined(PCSX2_DEVBUILD)
-	Console.WriteLn(Color_Green, "[PTR2] CdctrlMemIntgDecode hook called");
+	Console.WriteLn(Color_Blue, "[PTR2] CdctrlMemIntgDecode hook called");
 #endif
 
 	int memOff = 0;
@@ -95,7 +96,7 @@ void PrHookManager::CdctrlMemIntgDecode()
 	int write_pp = cpuRegs.GPR.n.a1.UD[0] + 0x20000000;
 
 #if defined(PCSX2_DEVBUILD)
-	Console.WriteLn("Writing " + folder + " to: " + fmt::format("{:#08x}", (write_pp - 0x20000000) + memOff));
+	Console.WriteLn("Writing " + folder + " folder");
 #endif
 
 	for (int i = 0; i < packFile.fnum; i++)
@@ -141,6 +142,11 @@ void PrHookManager::CdctrlMemIntgDecode()
 
 		// Write bytes from file to memory
 		const auto fp = FileSystem::OpenManagedCFile(final_path.c_str(), "rb");
+		if (!fp)
+		{
+			Console.Error(fmt::format("[PTR2] Failed to open file: {}", final_path.c_str()));
+			return;
+		}
 
 		const int buf_size = 4096;
 		u8 buf3[buf_size];

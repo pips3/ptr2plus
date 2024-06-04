@@ -2,8 +2,8 @@
 #include <pcsx2/vtlb.h>
 #include "GS/Renderers/Common/GSDevice.h"
 
-//Reactive Aspect Ratio Patch
-//This one won't be visible in UI
+// Reactive Aspect Ratio Patch
+// This one won't be visible in UI
 void PTR2AspectRatioSet(AspectRatioType ar)
 {
 	char buf[4] = {};
@@ -25,13 +25,13 @@ void PTR2AspectRatioSet(AspectRatioType ar)
 		
 			{
 				//patch=1,EE,0016066c,word,3c013f40
-				char buf2[4] = {0x40, 0x3F, 0x01, 0x3C};
+				u8 buf2[4] = {0x40, 0x3F, 0x01, 0x3C};
 				vtlb_memSafeWriteBytes(0x0016066c, &buf2, 4);
 				//patch=1,EE,00160678,word,44810000
-				char buf3[4] = {00, 00, 0x81, 0x44};
+				u8 buf3[4] = {00, 00, 0x81, 0x44};
 				vtlb_memSafeWriteBytes(0x00160678, &buf3, 4);
 				//patch=1,EE,0016067c,word,4600c602
-				char buf4[4] = {0x02, 0xC6, 0x00, 0x46};
+				u8 buf4[4] = {0x02, 0xC6, 0x00, 0x46};
 				vtlb_memSafeWriteBytes(0x0016067c, &buf4, 4);
 			}
 			break;
@@ -53,10 +53,10 @@ void PTR2AspectRatioSet(AspectRatioType ar)
 				vtlb_memSafeWriteBytes(0x0016066d, &buf2[3], 1);
 
 				//patch=1,EE,00160678,word,44810000
-				char buf3[4] = {00, 00, 0x81, 0x44};
+				u8 buf3[4] = {00, 00, 0x81, 0x44};
 				vtlb_memSafeWriteBytes(0x00160678, &buf3, 4);
 				//patch=1,EE,0016067c,word,4600c602
-				char buf4[4] = {0x02, 0xC6, 0x00, 0x46};
+				u8 buf4[4] = {0x02, 0xC6, 0x00, 0x46};
 				vtlb_memSafeWriteBytes(0x0016067c, &buf4, 4);
 		break;
 	}
@@ -68,30 +68,47 @@ void PTR2AspectRatioSet()
 	PTR2AspectRatioSet(ar);
 }
 
-//Patches unused func PackIntDecode to just infinitely call MTCWait(1)
-//this is so we can do stuff asynchronously by jumping to PackIntDecode
-//i.e loading INT assets ourselves without the loading screen stuttering/pausing
-void createAsyncFunc()
+// Patches unused func PackIntDecode to just infinitely call MtcWait(1).
+// This is so we can do stuff asynchronously by jumping to PackIntDecode
+// i.e loading INT assets ourselves without the loading screen stuttering/pausing
+static void CreateAsyncFunc()
 {
-	char buf[48] = {
-		0xE0, 0xFF, 0xBD, 0x27, // addiu sp -0x20
+	/* u8 buf[48] =
+	{
+		0xE0, 0xFF, 0xBD, 0x27, // addiu $sp, $sp, -0x20
 		0x10, 0x00, 0xA4, 0xFF, // sd a0, 0x10(sp)
 		0x00, 0x00, 0x00, 0x00, // nop					<-------------
-		0xF6, 0x05, 0x04, 0x0C, // jal 0x001017D8 (MtcWait			 |
-		0x01, 0x00, 0x04, 0x24, // addiu a0,zero,0x1  (li a0, 0x1	 |
+		0xF6, 0x05, 0x04, 0x0C, // jal 0x001017D8 (MtcWait)			 |
+		0x01, 0x00, 0x04, 0x24, // addiu a0,zero,0x1  (li a0, 0x1)	 |
 		0x00, 0x00, 0x00, 0x00, // nop								 |
 		0x00, 0x00, 0xA4, 0x8F, // lw a0, (sp)						 |
-		0xFA, 0xFF, 0x00, 0x10, //0xFA, 0xFF, 0x80, 0x10, // beqz, a0, 0x00104E98  -------------
+		0xFA, 0xFF, 0x00, 0x10, // beqz, a0, 0x00104E98  -------------  (prev. 0xFA, 0xFF, 0x80, 0x10)
 		0x00, 0x00, 0x00, 0x00, // nop
 		0x10, 0x00, 0xA4, 0xDF, // ld a0, 0x10(sp)
 		0x00, 0x00, 0x00, 0x00, // nop (gets patched with branch back to async hook return address in PTR2Hooks.cpp
-		0x20, 0x00, 0xBD, 0x27 // addiu sp,sp,0x20
-	};
-	vtlb_memSafeWriteBytes(0x00104e90, &buf, 48);
+		0x20, 0x00, 0xBD, 0x27  // addiu sp,sp,0x20
+	}; */
 
+	u8 patch[] =
+	{
+		0xE0, 0xFF, 0xBD, 0x27, // addiu       $sp, $sp, -0x20
+		0x10, 0x00, 0xBF, 0xFF, // sd          $ra, 0x10($sp)
+		0x00, 0x00, 0xB0, 0xFF, // sd          $s0, 0x0($sp)
+		0x00, 0x00, 0x00, 0x00, // nop
+		0xF6, 0x05, 0x04, 0x0C, // jal		   0x001017D8 <MtcWait>  <-------------
+		0x01, 0x00, 0x04, 0x24, // addiu       $a0, $zero, 0x1  (li a0, 0x1)      |
+		0xFD, 0xFF, 0x00, 0x12, // beqz        $s0, -0x8             --------------
+		0x10, 0x00, 0xBF, 0xDF, // ld          $ra, 0x10($sp)
+		0x00, 0x00, 0xB0, 0xDF, // ld          $s0, 0x0($sp)
+		0x08, 0x00, 0xE0, 0x03, // jr          $ra
+		0x20, 0x00, 0xBD, 0x27  // addiu       $sp, $sp, 0x20
+	};
+
+	vtlb_memSafeWriteBytes(0x00104E90, &patch, sizeof(patch));
 }
+
 void ReloadEmuPatches()
 {
-	createAsyncFunc();
+	CreateAsyncFunc();
 	PTR2AspectRatioSet();
 }

@@ -45,48 +45,46 @@ namespace PTR2
 	static_assert(sizeof(PACKINT_FILE_STR) == 0x20, "PACKINT_FILE_STR struct is not 0x20 bytes");
 }
 
-struct savedRegs
+enum HookType
 {
-	u32 r0, at, v0, v1, a0, a1, a2, a3,
-		t0, t1, t2, t3, t4, t5, t6, t7,
-		s0, s1, s2, s3, s4, s5, s6, s7,
-		t8, t9, k0, k1, gp, sp, s8, ra;
+	None,
+	CdctrlMemIntgDecode,
+	intReadSub
 };
+
+namespace HookThread
+{
+	void WorkerThread();
+	void JumpToThreadWait(bool jump);
+
+	void CdctrlMemIntgDecode();
+	void intReadSub();
+}
 
 class PrHookManager
 {
 	DeclareNoncopyableObject(PrHookManager);
 
 public:
-	PrHookManager() = default;
+	PrHookManager()  = default;
 	~PrHookManager() = default;
 
 	void InitHooks();
 	bool RunHooks(const u32 curPC);
-	bool RunHooksAsyncbbad(const u32 curPC);
-	bool RunHooksAsync(const u32 curPC);
-	bool CheckAsync(const u32 curPC);
-	
 
 	/* Hooks */
 	static void CdctrlMemIntgDecode();
 	static void intReadSub();
 
-	//try just saving a0?
-	static void CaptureReg();
-
 private:
-
-	
-
 	u32  m_gameHash;
 	bool m_hooksInit;
 
-	
-
 	std::unordered_map<u32, hookFunc_t> m_hookMap;
 	std::unordered_map<u32, u32>        m_returnMap;
-	std::unordered_set<u32> m_returnSet;
+
+	std::thread m_hookThread;
+	bool        m_threadInit;
 };
 
 PrHookManager* PrHookMgr();

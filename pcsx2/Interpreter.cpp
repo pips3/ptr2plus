@@ -144,7 +144,7 @@ static void execI()
 	const u32 pc = cpuRegs.pc;
 
 	/* PTR2+: Check and run our hooks */
-	PrHookMgr()->RunHooksAsync(pc);
+	PrHookMgr()->RunHooks(pc);
 
 	// We need to increase the pc before executing the memRead32. An exception could appears
 	// and it expects the PC counter to be pre-incremented

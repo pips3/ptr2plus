@@ -1442,9 +1442,15 @@
     <ClCompile Include="mods\PTR2Hooks.cpp">
       <Filter>Mods</Filter>
     </ClCompile>
-    <ClCompile Include="mods\EmuPatches.cpp" />
-    <ClCompile Include="mods\ActiveMods.cpp" />
-    <ClCompile Include="mods\PriorityList.cpp" />
+    <ClCompile Include="mods\ActiveMods.cpp">
+      <Filter>Mods</Filter>
+    </ClCompile>
+    <ClCompile Include="mods\EmuPatches.cpp">
+      <Filter>Mods</Filter>
+    </ClCompile>
+    <ClCompile Include="mods\PriorityList.cpp">
+      <Filter>Mods</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Patch.h">
@@ -2390,9 +2396,15 @@
     <ClInclude Include="mods\PTR2Common.h">
       <Filter>Mods</Filter>
     </ClInclude>
-    <ClInclude Include="mods\EmuPatches.h" />
-    <ClInclude Include="mods\ActiveMods.h" />
-    <ClInclude Include="mods\PriorityList.h" />
+    <ClInclude Include="mods\ActiveMods.h">
+      <Filter>Mods</Filter>
+    </ClInclude>
+    <ClInclude Include="mods\EmuPatches.h">
+      <Filter>Mods</Filter>
+    </ClInclude>
+    <ClInclude Include="mods\PriorityList.h">
+      <Filter>Mods</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuildStep Include="rdebug\deci2.h">

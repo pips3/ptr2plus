@@ -8,7 +8,6 @@ typedef u32 u_adr;
 
 namespace PTR2
 {
-
 	enum FILE_TYPE_ENUM
 	{
 		FT_NONE = 0,
@@ -55,7 +54,9 @@ enum HookType
 namespace HookThread
 {
 	void WorkerThread();
-	void JumpToThreadWait(bool jump);
+
+	void JumpToThreadWait();
+	void JumpBack();
 
 	void CdctrlMemIntgDecode();
 	void intReadSub();

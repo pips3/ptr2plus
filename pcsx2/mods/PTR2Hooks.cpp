@@ -20,7 +20,10 @@ extern void iBranchTest(u32 newpc);
 using namespace x86Emitter;
 using namespace PTR2;
 
-std::atomic<bool>     g_threadWork	   = false;
+bool                  g_hasHooked      = false;
+std::atomic<bool>     g_isHookOnLoop   = false;
+
+std::atomic<bool>     g_threadWork     = false;
 std::atomic<u32>      g_threadWorkType = HookType::None;
 
 std::atomic<u32>      g_retAddr;
@@ -44,7 +47,7 @@ void PrHookManager::InitHooks()
 	switch (m_gameHash)
 	{
 	case 0x38E1D1E3: /* Patched PTR2 NTSC-J */
-		m_hookMap.insert( { 0x00105AD8, CdctrlMemIntgDecode} );
+		m_hookMap.insert( { 0x00105AD8, CdctrlMemIntgDecode } );
 		m_returnMap.insert( { 0x00105AD8, 0x00105AEC } );
 		m_hooksInit = true;
 		break;
@@ -60,33 +63,45 @@ void PrHookManager::InitHooks()
 void PrHookManager::CdctrlMemIntgDecode()
 {
 #if defined(PCSX2_DEVBUILD)
-	Console.WriteLn(Color_Cyan, "[PTR2] CdctrlMemIntgDecode hook called");
+	Console.WriteLn(Color_Cyan, "[PTR2+] CdctrlMemIntgDecode hook called");
 #endif
 
 	CopyRegisters();
-	HookThread::JumpToThreadWait(true);
+	HookThread::JumpToThreadWait();
 
 	// Init work thread
 	g_threadWorkType = HookType::CdctrlMemIntgDecode;
 	g_threadWork     = true;
 
+#if 0
+	while (g_threadWork == true)
+	{
+	}
+#endif
+
 #if defined(PCSX2_DEVBUILD)
-	Console.WriteLn(Color_Cyan, "Thread started");
+	Console.WriteLn(Color_Cyan, "[PTR2+] Thread started");
 #endif
 }
 
 void PrHookManager::intReadSub()
 {
 #if defined(PCSX2_DEVBUILD)
-	Console.WriteLn(Color_Green, "[PTR2] intReadSub hook called");
+	Console.WriteLn(Color_Green, "[PTR2+] intReadSub hook called");
 #endif
 
 	CopyRegisters();
-	HookThread::JumpToThreadWait(true);
+	HookThread::JumpToThreadWait();
 
 	// Init work thread
 	g_threadWorkType = HookType::intReadSub;
 	g_threadWork     = true;
+
+#if 0
+	while (g_threadWork == true)
+	{
+	}
+#endif
 
 #if defined(PCSX2_DEVBUILD)
 	Console.WriteLn(Color_Cyan, "Hook over!");
@@ -99,41 +114,54 @@ bool PrHookManager::RunHooks(const u32 curPC)
 		return false;
 
 	// Find the functions to hook
-	auto hook = m_hookMap.find(curPC);
+	auto hook  = m_hookMap.find(curPC);
 	auto ret  = m_returnMap.find(curPC);
 
-	if (hook != m_hookMap.end())
+	if (hook != m_hookMap.end() || g_hasHooked)
 	{
 		g_retAddr = ret->second;
 
-		// Execute the hook!
-		if (CHECK_EEREC)
-			recCall(hook->second);
-		else
-			hook->second();
-
-		if (ret != m_returnMap.end())
+		if (!g_hasHooked)
 		{
-			// We're done, leave the game alone for now
+			// Execute the hook!
 			if (CHECK_EEREC)
-			{
-				g_branch = 1;
+				recCall(hook->second);
+			else
+				hook->second();
 
-				iFlushCall(FLUSH_EVERYTHING);
-				xMOV(ptr32[&cpuRegs.pc], ret->second);
-				iBranchTest(ret->second);
+			g_hasHooked = true;
+		}
+
+		// We must not return while the hook is still running!
+		if (!g_threadWork)
+		{
+			Console.WriteLn(Color_Cyan, "[PTR2+] Returning!");
+
+			if (ret != m_returnMap.end())
+			{
+				// We're done, leave the game alone for now
+				if (CHECK_EEREC)
+				{
+					g_branch = 1;
+
+					iFlushCall(FLUSH_EVERYTHING);
+					xMOV(ptr32[&cpuRegs.pc], ret->second);
+					iBranchTest(ret->second);
+				}
+				else
+				{
+					cpuRegs.pc = ret->second;
+				}
+
+				g_hasHooked = false;
+				g_isHookOnLoop = false;
+				return true;
 			}
 			else
 			{
-				cpuRegs.pc = ret->second;
+				// We don't know what to set the program counter to...
+				Console.WriteLn(Color_Red, "[PTR2+] Couldn't find return address!");
 			}
-
-			return true;
-		}
-		else
-		{
-			// We don't know what to set the program counter to...
-			Console.WriteLn(Color_Red, "[PTR2] Couldn't find return address!");
 		}
 	}
 
@@ -144,13 +172,22 @@ bool PrHookManager::RunHooks(const u32 curPC)
 /* ==================== HOOKS ==================== */
 /* =============================================== */
 
-#define WAIT_ADDR (0x00104E90) /* Hardcoded to patched NTSC-J ELF */
+/* Our loop is here */
+/* while(1) { MtcWait(1); } */
+#define WAIT_ADDR (0x00105A94) /* Hardcoded to patched NTSC-J ELF */
 
-void HookThread::JumpToThreadWait(bool jump)
+void HookThread::JumpToThreadWait()
 {
-	if (jump)
+	if (!g_isHookOnLoop)
 	{
-		Console.WriteLn(Color_Red, "[PTR2] JUMPING TO MTCWAIT");
+		Console.WriteLn(Color_Red, "[PTR2+] Jumping to loop");
+
+		// Crashing here.
+		// u8 jumpPatch[] = { 0xFD, 0xFF, 0x00, 0x10 };
+		// vtlb_memSafeWriteBytes(JUMP_ADDR, &jumpPatch, sizeof(jumpPatch));
+
+		Console.WriteLn(Color_Red, "CPU PC before jumping: 0x%08x", cpuRegs.pc);
+
 		if (CHECK_EEREC)
 		{
 			g_branch = 1;
@@ -163,13 +200,30 @@ void HookThread::JumpToThreadWait(bool jump)
 		{
 			cpuRegs.pc = WAIT_ADDR;
 		}
+
+		g_isHookOnLoop = true;
+	}
+}
+
+/* CdctrlMemIntgDecode */
+#define DECODE_ADDR (0x00105AD8) /* Hardcoded to patched NTSC-J ELF */
+
+void HookThread::JumpBack()
+{
+	Console.WriteLn(Color_Red, "[PTR2+] Jumping back to 0x%08x", DECODE_ADDR);
+	Console.WriteLn(Color_Red, "[PTR2+] CPU PC before jump: 0x%08x", cpuRegs.pc);
+
+	if (CHECK_EEREC)
+	{
+		g_branch = 1;
+
+		iFlushCall(FLUSH_EVERYTHING);
+		xMOV(ptr32[&cpuRegs.pc], DECODE_ADDR);
+		iBranchTest(DECODE_ADDR);
 	}
 	else
 	{
-		Console.WriteLn(Color_Red, "[PTR2] BREAKING LOOP ON MTCWAIT");
-		Console.WriteLn(Color_Red, "$s0 (should be 0): %u", cpuRegs.GPR.n.s0.UD[0]);
-		memWrite32(cpuRegs.GPR.n.ra.UD[0], g_retAddr);
-		memWrite32(cpuRegs.GPR.n.s0.UD[0], 1);
+		cpuRegs.pc = DECODE_ADDR;
 	}
 }
 
@@ -197,7 +251,12 @@ void HookThread::WorkerThread()
 				break;
 			}
 
-			JumpToThreadWait(false);
+
+#if defined(PCSX2_DEVBUILD)
+			Console.WriteLn(Color_Cyan, "[PTR2+] Thread over");
+#endif
+
+			HookThread::JumpBack();
 			g_threadWork = false;
 		}
 	}
@@ -206,7 +265,7 @@ void HookThread::WorkerThread()
 void HookThread::CdctrlMemIntgDecode()
 {
 #if defined(PCSX2_DEVBUILD)
-	Console.WriteLn(Color_Cyan, "[PTR2+] In thread decode func");
+	Console.WriteLn(Color_Cyan, "[PTR2+] In thread CdctrlMemIntgDecode");
 #endif
 
 	int memOff = 0;
@@ -361,6 +420,10 @@ void HookThread::CdctrlMemIntgDecode()
 			memOff++;
 		}
 	}
+
+#if defined(PCSX2_DEVBUILD)
+	Console.WriteLn(Color_Cyan, "[PTR2+] CdctrlMemIntgDecode over!");
+#endif
 }
 
 void HookThread::intReadSub()

@@ -453,6 +453,16 @@ namespace R3000A
 		}
 	};
 
+	struct fileHandle
+	{
+		u32 fd_index;
+		std::string full_path;
+		s32 flags;
+		u16 mode;
+	};
+
+	std::vector<fileHandle> handles;
+
 	namespace ioman
 	{
 		const int firstfd = 0x100;
@@ -566,6 +576,7 @@ namespace R3000A
 				if (fds[i])
 					fds[i].close();
 			}
+			handles.clear();
 		}
 
 		bool is_host(const std::string path)
@@ -609,6 +620,14 @@ namespace R3000A
 					if ((s32)v0 < 0)
 						file->close();
 				}
+				IOManFile* fd = getfd<IOManFile>(v0);
+				
+				fileHandle handle;
+				handle.fd_index = v0 - firstfd;
+				handle.flags = flags;
+				handle.full_path = path;
+				handle.mode = mode;
+				handles.push_back(handle);
 
 				pc = ra;
 				return 1;
@@ -624,6 +643,16 @@ namespace R3000A
 			if (getfd<IOManFile>(fd))
 			{
 				freefd(fd);
+
+				for (int i = 0; i < handles.size(); i++)
+				{
+					if (handles[i].fd_index == fd - firstfd)
+					{
+						handles.erase(handles.begin() + i);
+						break;
+					}
+				}
+
 				v0 = 0;
 				pc = ra;
 				return 1;
@@ -1241,3 +1270,88 @@ namespace R3000A
 	}
 
 } // end namespace R3000A
+
+/*void printHandles()
+{
+	using namespace R3000A;
+	for (int i = 0; i < handles.size(); i++)
+	{
+		Console.WriteLn("file handle %u:", i);
+		
+		Console.WriteLn("flags: %u", handles[i].flags);
+		Console.WriteLn("mode: %u", handles[i].mode);
+		Console.WriteLn("fd index: %u", handles[i].fd_index);
+		Console.WriteLn(handles[i].full_path);
+	}
+}*/
+
+bool SaveStateBase::handleFreeze()
+{
+	using namespace R3000A;
+	using namespace R3000A::ioman;
+
+	if (IsLoading()) reset();
+
+	if (!FreezeTag("hostHandles")) return false;
+	//Console.WriteLn("handles before");
+	//printHandles();
+
+	int handleCount = handles.size();
+	//Console.WriteLn("handle count: " + handleCount);
+	Freeze(handleCount);
+
+	//Freeze can take a struct, but seems to not work if the struct has a string in it, so doing it like this instead
+	for (int i = 0; i < handleCount; i++)
+	{
+		if (IsLoading())
+		{
+			//load the parameters for opening the file
+			long pos;
+			Freeze(pos);
+
+			u32 fd; 
+			Freeze(fd);
+
+			s32 flags; 
+			Freeze(flags);
+
+			std::string full_path;
+			FreezeString(full_path);
+
+			u16 mode; 
+			Freeze(mode);
+
+			fileHandle handle;
+			handle.fd_index = fd;
+			handle.flags = flags;
+			handle.full_path = full_path;
+			handle.mode = mode;
+			handles.push_back(handle);
+
+			//reopen the file
+			IOManFile* file = NULL;
+			HostFile::open(&file, full_path, flags, mode);
+			handles[i].fd_index = allocfd(file) - firstfd;
+
+			//seek file to position when saved
+			file->lseek(pos, SEEK_SET);
+		}
+		else
+		{
+			//save the current file position
+			IOManFile* file = getfd<IOManFile>(handles[i].fd_index + firstfd);
+			int pos = file->lseek(0, SEEK_CUR);
+			Freeze(pos);
+
+			//save the parameters for opening the file
+			Freeze(handles[i].fd_index);
+			Freeze(handles[i].flags);
+			FreezeString(handles[i].full_path);
+			Freeze(handles[i].mode);
+		}
+		
+	}
+	//Console.WriteLn("handles after:");
+	//printHandles();
+	return true;
+}

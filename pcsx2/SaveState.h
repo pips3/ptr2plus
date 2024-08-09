@@ -220,6 +220,7 @@ protected:
 	bool sioFreeze();
 	bool cdrFreeze();
 	bool cdvdFreeze();
+	bool handleFreeze(); //ptr2plus
 	bool psxRcntFreeze();
 	bool deci2Freeze();
 

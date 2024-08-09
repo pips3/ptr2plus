@@ -186,6 +186,8 @@ bool SaveStateBase::FreezeInternals()
 	if (!vmFreeze())
 		return false;
 
+	handleFreeze(); //file handles
+
 	// Second Block - Various CPU Registers and States
 	// -----------------------------------------------
 	if (!FreezeTag("cpuRegs"))

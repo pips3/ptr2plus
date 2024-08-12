@@ -1290,9 +1290,16 @@ bool SaveStateBase::handleFreeze()
 	using namespace R3000A;
 	using namespace R3000A::ioman;
 
+	if (!FreezeTag("hostHandles"))
+{
+		//workaround so that old save states still load
+		Console.Error("PTR2PLUS Warning: You are trying to load a save state that wasn't made in ptr2plus, this may cause issues.");
+		m_idx -= 32;
+		handles.clear();
+		m_error = false;
+		return false;
+	}
 	if (IsLoading()) reset();
-
-	if (!FreezeTag("hostHandles")) return false;
 	//Console.WriteLn("handles before");
 	//printHandles();
 

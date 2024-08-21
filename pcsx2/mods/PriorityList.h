@@ -10,5 +10,6 @@ namespace PriorityList
 	bool Push(std::string modname);
 	bool Remove(std::string modname);
 	bool Save(std::vector<std::string> priority_list);
+	bool ContainsMod(std::string modname)
 
 }

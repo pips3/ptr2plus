@@ -9,7 +9,7 @@ static std::string ActiveMods::GetFilename()
 	return Path::Combine(EmuFolders::Cache, "activemods.cache");
 }
 	/* This would be quicker
-bool ActiveMods::isModActive(const std::string mod)
+bool ActiveMods::ContainsMod(const std::string mod)
 {
 	const std::string activemods_filename(GetFilename());
 
@@ -32,7 +32,7 @@ bool ActiveMods::isModActive(const std::string mod)
 	return false;
 }
 */
-bool ActiveMods::isModActive(const std::string mod)
+bool ActiveMods::ContainsMod(const std::string mod)
 {
 	std::vector<std::string> paths;
 	GetPaths(mod, paths);

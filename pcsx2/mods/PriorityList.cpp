@@ -166,3 +166,14 @@ bool PriorityList::Remove(std::string modname)
 
 	return Save(new_priority_list);
 }
+
+bool PriorityList::ContainsMod(std::string modname)
+{
+	std::vector<std::string> priority_list = Get();
+	for (std::string list_modname : priority_list)
+	{
+		if (modname == list_modname)
+			return true;
+	}
+	return false;
+}

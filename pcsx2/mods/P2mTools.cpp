@@ -660,13 +660,21 @@ bool StartUpApplyActiveMods()
 	std::vector<std::pair<std::string, std::string>> activeModCache = ActiveMods::GetAll();
 	int file_count = activeModCache.size();
 
+	//try and load textures for all mods
+	for (std::string modname : PriorityList::Get())
+		LoadTexFiles(modname);
+
+	//load mod files
 	for (std::pair<std::string, std::string> entry : activeModCache)
 	{
-		if (entry.first == "textureREPLACEMENTS")
+		mod_file file = GetP2MFileByEntry(entry);
+		if (!ApplyModFile(file))
 		{
-			LoadTexFiles(entry.second);
+			return false;
 		}
-		else
+	}
+	return true;
+}
 		{
 			mod_file file = GetP2MFileByEntry(entry);
 			if (!ApplyModFile(file))
@@ -903,15 +911,21 @@ bool TryDeleteFiles()
 	return true;
 }
 
+bool isTexLoaded(std::string modname)
+{
+	std::string tex_folder = GetTexReplacementDirectory(modname);
+	std::string destination_folder = GetTexUnloadDirectory(modname);
+
+	return FileSystem::DirectoryExists(tex_folder.c_str());
+}
+
 bool refreshPriorityList()
 {
 	std::vector<std::string> list = PriorityList::Get();
 	for (std::string mod : list)
 	{
-		if (!ActiveMods::isModActive(mod))
-		{
+		if (!ActiveMods::ContainsMod(mod) && !isTexLoaded(mod))
 			PriorityRemove(mod);
-		}
 	}
 	return true;
 }
@@ -1086,9 +1100,6 @@ bool enableMod(std::string filename)
 		//load tex files
 		MoveTexFiles(fp.get(), mod, tex_files);
 
-		//add special activemods entry for tex files
-		std::pair<std::string, std::string> entry("textureREPLACEMENTS", mod);
-		ActiveMods::Add(entry);
 	}
 	
 	return true;
@@ -1119,6 +1130,8 @@ bool ApplySingleModEntry(std::string path, std::string modname)
 	
 }
 
+//when priorities have been reordered, reload mod files
+//should not be called if mods have been removed/added
 bool RefreshMods() 
 {
 	std::vector<std::string> priorities = PriorityList::Get();
@@ -1168,6 +1181,7 @@ bool RefreshMods()
 	return true;
 }
 
+//for reordering prioritiy
 bool AdjustModPriority(std::string modname, int newIndex)
 {
 	PriorityRemove(modname);

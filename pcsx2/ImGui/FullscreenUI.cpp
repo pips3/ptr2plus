@@ -2821,7 +2821,7 @@ void FullscreenUI::DrawModsPage()
 
 		//const auto enable_it = std::find(enable_list.begin(), enable_list.end(), pi.name);
 		*/
-		bool state = ActiveMods::isModActive(Path::GetFileName(fd.FileName).data());
+		bool state = PriorityList::ContainsMod(Path::GetFileName(fd.FileName).data());
 		if (ToggleButton((title + " by " + author).c_str(), description.c_str(), &state, true))
 		{
 			if (state)
@@ -2874,7 +2874,7 @@ void FullscreenUI::DrawModsPriorityPage()
 	{
 
 		std::string description = "Priority: " + std::to_string(i) + " (0 is highest priority).";
-		//bool state = isModActive(Path::GetFileName(fd.FileName).data());
+		//bool state = ContainsMod(Path::GetFileName(fd.FileName).data());
 
 		if (MenuButton((mods[i]).c_str(), description.c_str()))
 		{

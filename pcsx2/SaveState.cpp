@@ -186,6 +186,9 @@ bool SaveStateBase::FreezeInternals()
 	if (!vmFreeze())
 		return false;
 
+	//handle Currently activated mods
+	activeModsFreeze();
+
 	handleFreeze(); //file handles
 
 	// Second Block - Various CPU Registers and States

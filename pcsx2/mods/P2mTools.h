@@ -5,12 +5,16 @@
 
 extern bool files_to_delete;
 extern bool TryDeleteFiles();
-extern bool isModActive(const std::string mod);
+extern bool ContainsMod(const std::string mod);
 extern bool Get(const std::string path, std::string& mod);
 extern bool Get(const std::string mod, std::vector<std::string>& paths);
 
 extern bool removeActiveModEntry(std::string mod);
 extern bool addActiveModEntry(std::string filename, std::vector<std::string> paths);
+
+extern bool ApplySingleModEntry(std::string path, std::string modname);
+extern bool addDeleteEntry(std::string path);
+extern bool MoveTexFiles(std::string mod);
 
 extern std::vector<std::string> Get();
 extern bool AdjustModPriority(std::string modname, int newIndex);

@@ -675,14 +675,120 @@ bool StartUpApplyActiveMods()
 	}
 	return true;
 }
+#include "Common.h"
+bool SaveStateBase::activeModsFreeze()
+{
+	#include "mods/P2mTools.h"
+	#include <pcsx2/mods/ActiveMods.h>
+	#include <pcsx2/mods/PriorityList.h>
+
+	//dont need to save the actual "activemods" object, save priority list instead
+
+	if (!FreezeTag("activeMods"))
+	{
+		//workaround so that old save states still load
+		Console.Error("PTR2PLUS Warning: You are trying to load a save state that wasn't made in ptr2plus, this may cause issues.");
+		m_idx -= 32;
+		//TODO: unload all mods here
+		m_error = false;
+		return false;
+	}
+	std::vector<std::string> current_priorities = PriorityList::Get();
+	int current_count = current_priorities.size();
+	std::vector<std::string> priorities;
+
+	//if saving
+	if (!IsLoading())
+	{
+		Freeze(current_count);
+		for (int i = 0; i < current_count; i++)
 		{
-			mod_file file = GetP2MFileByEntry(entry);
-			if (!ApplyModFile(file))
+			FreezeString(current_priorities[i]);
+		}
+		return true;
+	}
+	else
+	{
+		Freeze(current_count);
+		for (int i = 0; i < current_count; i++)
+		{
+			std::string priority = "";
+			FreezeString(priority);
+			priorities.push_back(priority);
+		}
+	
+		//the following code uses a similar logic to RefreshMods():
+		//filter mod files by priority using std::map
+		//remove any files from the map that are already loaded,
+		//so we dont waste time loading files we dont have to
+		// 
+		//this does not apply to tex files
+
+		int mod_count = priorities.size();
+
+		//get list of mod entries after priorities
+		std::map<std::string, std::string> entries; //we dont need order but map is probably better than unordered anyway
+		for (int i = mod_count - 1; i > -1; i--) //iterate lowest priority first
+		{
+			std::string modname = priorities[i];
+			std::vector<mod_file> files = GetP2MFilesByModName(modname);
+			for (mod_file file : files)
 			{
-				return false;
+				entries.insert_or_assign(file.path, modname);
+				//entries.push_back(entry);
 			}
 		}
-		
+
+		//remove entries already applied
+		std::vector<std::pair<std::string, std::string>> cache = ActiveMods::GetAll();
+		for (std::pair<std::string, std::string> entry : cache)
+		{
+			//if current file in new files
+			if (entries[entry.first] == entry.second)
+			{
+				//remove from new files
+				entries.erase(entry.first);
+			}
+			else //otherwise unload current file
+			{ 
+				//remove entries we are going to replace
+				ActiveMods::RemoveEntry(entry.first);
+
+				//taken from disableModEntry() -- because we dont want to unpatch elf
+				std::string mod_file = GetModFilePath(entry.first);
+
+				if (!FileSystem::DeleteFilePath(mod_file.c_str()))
+				{
+					addDeleteEntry(entry.first);
+					files_to_delete = true;
+				}
+			}
+		}
+
+		//unload current texs and load new ones
+		//we unload all even if they're still used because its just renaming paths
+		//so not a performance hit for unloading and loading up again
+		for (std::string mod : current_priorities)
+		{
+			UnloadTexFiles(mod);
+		}
+		PriorityList::Save(priorities);
+		for (std::string mod : priorities)
+		{
+			if (!LoadTexFiles(mod))
+				MoveTexFiles(mod);
+		}
+
+		//convert map to vector of pairs, so we can access both key and value
+		std::vector<std::pair<std::string, std::string>> new_cache;
+		new_cache.assign(entries.begin(), entries.end());
+
+		//apply our new entries
+		for (std::pair<std::string, std::string> entry : new_cache)
+		{
+			ApplySingleModEntry(entry.first, entry.second);
+			ActiveMods::Add(entry);
+		}
 	}
 	return true;
 }
@@ -991,6 +1097,15 @@ bool MoveTexFiles(FILE* stream, std::string modname, std::vector<tex_file> tex_f
 	toggleTexReplacementSetting(true);
 
 	return true;
+}
+bool MoveTexFiles(std::string modname)
+{
+	std::string filename = GetPathFromModName(modname);
+	const auto fp = FileSystem::OpenManagedCFile(filename.c_str(), "rb");
+	p2m_header hd;
+	std::vector<tex_file> tex_files = GetP2MTexFiles(fp.get(), hd);
+
+	return MoveTexFiles(fp.get(), modname, tex_files);
 }
 
 bool MoveModFile(FILE* stream, mod_file file)

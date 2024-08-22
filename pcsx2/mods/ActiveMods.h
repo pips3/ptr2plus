@@ -6,7 +6,7 @@ namespace ActiveMods
 
 	bool ReadOne(FILE* stream, std::pair<std::string, std::string>& entry);
 
-	bool isModActive(const std::string mod);
+	bool ContainsMod(const std::string mod);
 
 	bool GetPaths(const std::string mod, std::vector<std::string>& paths);
 	bool GetMod(const std::string path, std::string& mod);

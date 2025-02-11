@@ -1075,6 +1075,7 @@ namespace SettingWidgetBinder
 		}
 	}
 
+
 	static inline void BindSliderToIntSetting(SettingsInterface* sif, QSlider* slider, QLabel* label, const QString& label_suffix,
 		std::string section, std::string key, s32 default_value)
 	{

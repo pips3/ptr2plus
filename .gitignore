@@ -83,6 +83,8 @@ oprofile_data/
 /bin/logs
 /bin/memcards
 /bin/mods
+/bin/ptr2
+/bin/ptr2test
 /bin/plugins
 /bin/snaps
 /bin/sstates

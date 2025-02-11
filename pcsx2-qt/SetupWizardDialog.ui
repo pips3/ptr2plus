@@ -6,12 +6,12 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>760</width>
-    <height>389</height>
+    <width>681</width>
+    <height>371</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>PCSX2 Setup Wizard</string>
+   <string>PTR2 Plus Setup Wizard</string>
   </property>
   <property name="windowIcon">
    <iconset>
@@ -61,6 +61,7 @@
         <widget class="QLabel" name="labelLanguage">
          <property name="font">
           <font>
+           <weight>75</weight>
            <bold>true</bold>
           </font>
          </property>
@@ -77,9 +78,16 @@
         </widget>
        </item>
        <item>
-        <widget class="QLabel" name="labelGameList">
+        <widget class="QLabel" name="labelPTR2">
          <property name="text">
-          <string>Game Directories</string>
+          <string>PTR2 Install</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="label_15">
+         <property name="text">
+          <string>Mods Folder</string>
          </property>
         </widget>
        </item>
@@ -114,6 +122,50 @@
      </item>
     </layout>
    </item>
+   <item row="1" column="0" colspan="2">
+    <layout class="QHBoxLayout" name="horizontalLayout">
+     <property name="spacing">
+      <number>6</number>
+     </property>
+     <item>
+      <spacer name="horizontalSpacer">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="back">
+       <property name="text">
+        <string>&amp;Back</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="next">
+       <property name="text">
+        <string>&amp;Next</string>
+       </property>
+       <property name="default">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="cancel">
+       <property name="text">
+        <string>&amp;Cancel</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
    <item row="0" column="1">
     <widget class="QStackedWidget" name="pages">
      <property name="currentIndex">
@@ -139,7 +191,7 @@
        <item>
         <widget class="QLabel" name="label_2">
          <property name="text">
-          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;h1 style=&quot; margin-top:18px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-size:xx-large; font-weight:700;&quot;&gt;Welcome to PCSX2!&lt;/span&gt;&lt;/h1&gt;&lt;p&gt;This wizard will help guide you through the configuration steps required to use the application. It is recommended if this is your first time installing PCSX2 that you view the setup guide at &lt;a href=&quot;https://pcsx2.net/docs/usage/setup/&quot;&gt;https://pcsx2.net/docs/usage/setup/&lt;/a&gt;.&lt;/p&gt;&lt;p&gt;By default, PCSX2 will connect to the server at &lt;a href=&quot;https://pcsx2.net/&quot;&gt;pcsx2.net&lt;/a&gt; to check for updates, and if available and confirmed, download update packages from &lt;a href=&quot;https://github.com/&quot;&gt;github.com&lt;/a&gt;. If you do not wish for PCSX2 to make any network connections on startup, you should uncheck the Automatic Updates option now. The Automatic Update setting can be changed later at any time in Interface Settings.&lt;/p&gt;&lt;p&gt;Please choose a language and theme to begin.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-size:xx-large; font-weight:696;&quot;&gt;Welcome to PTR2 Plus!&lt;/span&gt;&lt;/p&gt;&lt;p&gt;PTR2 Plus is a modified build of PCSX2, designed for PaRappa The Rapper 2. This wizard will help guide you through the configuration steps required to use the application. If this is your first time installing PCSX2 it is recommended that you view the setup guide at &lt;a href=&quot;https://pcsx2.net/docs/category/setup/&quot;&gt;pcsx2.net&lt;/a&gt;.&lt;/p&gt;&lt;p&gt;Please choose a language and theme to begin.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
          </property>
          <property name="alignment">
           <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
@@ -178,7 +230,7 @@
          <item row="1" column="1">
           <widget class="QComboBox" name="theme"/>
          </item>
-         <item row="3" column="1">
+         <item row="2" column="1">
           <spacer name="verticalSpacer_3">
            <property name="orientation">
             <enum>Qt::Vertical</enum>
@@ -190,13 +242,6 @@
             </size>
            </property>
           </spacer>
-         </item>
-         <item row="2" column="0" colspan="2">
-          <widget class="QCheckBox" name="autoUpdateEnabled">
-           <property name="text">
-            <string>Enable Automatic Updates</string>
-           </property>
-          </widget>
          </item>
         </layout>
        </item>
@@ -262,10 +307,10 @@
          <property name="rootIsDecorated">
           <bool>false</bool>
          </property>
-         <attribute name="headerMinimumSectionSize">
+         <attribute name="headerDefaultSectionSize">
           <number>250</number>
          </attribute>
-         <attribute name="headerDefaultSectionSize">
+         <attribute name="headerMinimumSectionSize">
           <number>250</number>
          </attribute>
          <column>
@@ -330,7 +375,7 @@
        <item>
         <widget class="QLabel" name="label_6">
          <property name="text">
-          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;PCSX2 will automatically scan and identify games from the selected directories below, and populate the game list.&lt;br&gt;These games should be dumped from discs you own. Guides for dumping discs can be found at &lt;a href=&quot;https://pcsx2.net/docs/usage/setup/#dumping-ps2-discs-via-imgburn&quot;&gt;pcsx2.net&lt;/a&gt;.&lt;/p&gt;&lt;p&gt;Supported formats for dumps include:&lt;/p&gt;&lt;p&gt;&lt;ul&gt;&lt;li&gt;.bin/.iso (ISO Disc Images)&lt;/li&gt;&lt;li&gt;.mdf (Media Descriptor File)&lt;/li&gt;&lt;li&gt;.chd (Compressed Hunks of Data)&lt;/li&gt;&lt;li&gt;.cso (Compressed ISO)&lt;/li&gt;&lt;li&gt;.gz (Gzip Compressed ISO)&lt;/li&gt;&lt;/ul&gt;&lt;/p&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;PTR2 Plus will automatically extract files from &lt;span style=&quot; font-weight:600;&quot;&gt;an ISO Disc Image of PaRappa The Rapper 2 (NTSC-U).&lt;/span&gt;&lt;/p&gt;&lt;p&gt;This should be dumped from a disc you own. Guides for dumping discs can be found at &lt;a href=&quot;https://pcsx2.net/docs/usage/setup/#dumping-ps2-discs-via-imgburn&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#0000ff;&quot;&gt;pcsx2.net&lt;/span&gt;&lt;/a&gt;&lt;/p&gt;&lt;p&gt;Please select the ISO and a directory to extract its contents to. &lt;span style=&quot; font-weight:600;&quot;&gt;You will need ~5 GB of free storage space for this. &lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
          </property>
          <property name="alignment">
           <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
@@ -345,72 +390,80 @@
          <item>
           <widget class="QLabel" name="label_7">
            <property name="text">
-            <string>Search Directories (will be scanned for games)</string>
+            <string>PaRappa The Rapper 2 ISO:</string>
            </property>
           </widget>
          </item>
          <item>
-          <spacer name="horizontalSpacer_5">
-           <property name="orientation">
-            <enum>Qt::Horizontal</enum>
-           </property>
-           <property name="sizeHint" stdset="0">
-            <size>
-             <width>40</width>
-             <height>20</height>
-            </size>
-           </property>
-          </spacer>
+          <widget class="QLineEdit" name="isoDirectory"/>
          </item>
          <item>
-          <widget class="QToolButton" name="addSearchDirectoryButton">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Minimum" vsizetype="Minimum">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
+          <widget class="QPushButton" name="browseIsoDirectory">
            <property name="text">
-            <string>Add</string>
-           </property>
-           <property name="icon">
-            <iconset theme="folder-add-line">
-             <normaloff>.</normaloff>.</iconset>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QToolButton" name="removeSearchDirectoryButton">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Minimum" vsizetype="Minimum">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="text">
-            <string>Remove</string>
-           </property>
-           <property name="icon">
-            <iconset theme="folder-reduce-line">
-             <normaloff>.</normaloff>.</iconset>
+            <string>Browse...</string>
            </property>
           </widget>
          </item>
         </layout>
        </item>
        <item>
-        <widget class="QTableWidget" name="searchDirectoryList">
-         <column>
-          <property name="text">
-           <string>Search Directory</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Scan Recursively</string>
-          </property>
-         </column>
-        </widget>
+        <layout class="QHBoxLayout" name="horizontalLayout_8">
+         <item>
+          <widget class="QLabel" name="label">
+           <property name="text">
+            <string>Extract Directory:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="ptr2Directory"/>
+         </item>
+         <item>
+          <widget class="QPushButton" name="browsePtr2Directory">
+           <property name="text">
+            <string>Browse...</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="ptr2ResetDirectory">
+           <property name="text">
+            <string>Reset</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_7">
+         <item>
+          <widget class="QProgressBar" name="progressBar">
+           <property name="value">
+            <number>0</number>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="ExtractFiles">
+           <property name="text">
+            <string>Extract Files</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <spacer name="verticalSpacer_2">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
        </item>
       </layout>
      </widget>
@@ -493,7 +546,7 @@
               </property>
               <property name="icon">
                <iconset theme="controller-line">
-                <normaloff>Settings</normaloff>Settings</iconset>
+                <normaloff>../../../../.designer/backup/Settings</normaloff>../../../../.designer/backup/Settings</iconset>
               </property>
               <property name="toolButtonStyle">
                <enum>Qt::ToolButtonTextBesideIcon</enum>
@@ -557,7 +610,7 @@
               </property>
               <property name="icon">
                <iconset theme="controller-line">
-                <normaloff>Settings</normaloff>Settings</iconset>
+                <normaloff>../../../../.designer/backup/Settings</normaloff>../../../../.designer/backup/Settings</iconset>
               </property>
               <property name="toolButtonStyle">
                <enum>Qt::ToolButtonTextBesideIcon</enum>
@@ -601,7 +654,7 @@
        <item>
         <widget class="QLabel" name="label_9">
          <property name="text">
-          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;h1 style=&quot; margin-top:18px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-size:xx-large; font-weight:700;&quot;&gt;Setup Complete!&lt;/span&gt;&lt;/h1&gt;&lt;p&gt;You are now ready to run games.&lt;/p&gt;&lt;p&gt;Further options are available under the settings menu. You can also use the Big Picture UI for navigation entirely with a gamepad.&lt;/p&gt;&lt;p&gt;We hope you enjoy using PCSX2.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-size:xx-large; font-weight:696;&quot;&gt;Setup Complete!&lt;/span&gt;&lt;/p&gt;&lt;p&gt;You are now ready to run PaRappa The Rapper 2.&lt;/p&gt;&lt;p&gt;Further options are available under the settings menu. You can also use the Big Picture UI for navigation entirely with a gamepad.&lt;/p&gt;&lt;p&gt;We hope you enjoy using PTR2 Plus.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
          </property>
          <property name="alignment">
           <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
@@ -614,50 +667,6 @@
       </layout>
      </widget>
     </widget>
-   </item>
-   <item row="1" column="0" colspan="2">
-    <layout class="QHBoxLayout" name="horizontalLayout">
-     <property name="spacing">
-      <number>6</number>
-     </property>
-     <item>
-      <spacer name="horizontalSpacer">
-       <property name="orientation">
-        <enum>Qt::Horizontal</enum>
-       </property>
-       <property name="sizeHint" stdset="0">
-        <size>
-         <width>40</width>
-         <height>20</height>
-        </size>
-       </property>
-      </spacer>
-     </item>
-     <item>
-      <widget class="QPushButton" name="back">
-       <property name="text">
-        <string>&amp;Back</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="next">
-       <property name="text">
-        <string>&amp;Next</string>
-       </property>
-       <property name="default">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="cancel">
-       <property name="text">
-        <string>&amp;Cancel</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
    </item>
   </layout>
  </widget>

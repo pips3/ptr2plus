@@ -1256,6 +1256,11 @@ bool FileSystem::DirectoryExists(const char* path)
 		return false;
 }
 
+bool FileSystem::PathExists(const char* path)
+{
+	return FileExists(path) || DirectoryExists(path);
+}
+
 bool FileSystem::DirectoryIsEmpty(const char* path)
 {
 	std::wstring wpath(StringUtil::UTF8StringToWideString(path));
@@ -1392,6 +1397,19 @@ bool FileSystem::DeleteDirectory(const char* path)
 {
 	const std::wstring wpath(StringUtil::UTF8StringToWideString(path));
 	return RemoveDirectoryW(wpath.c_str());
+}
+
+bool FileSystem::DeletePath(const char* path)
+{
+	if (DirectoryExists(path))
+	{
+		return DeleteDirectory(path);
+	}
+	else if (FileExists(path))
+	{
+		return DeleteFilePath(path);
+	}
+	return false; //no file or dir found
 }
 
 std::string FileSystem::GetProgramPath()

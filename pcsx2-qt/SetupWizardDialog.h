@@ -25,6 +25,7 @@
 #include <QtWidgets/QDialog>
 
 #include "common/Pcsx2Defs.h"
+#include "CDVD/IsoReader.h"
 
 class SetupWizardDialog final : public QDialog
 {
@@ -47,11 +48,17 @@ private Q_SLOTS:
 	void biosListItemChanged(const QTreeWidgetItem* current, const QTreeWidgetItem* previous);
 	void listRefreshed(const QVector<BIOSInfo>& items);
 
-	void onDirectoryListContextMenuRequested(const QPoint& point);
-	void onAddSearchDirectoryButtonClicked();
-	void onRemoveSearchDirectoryButtonClicked();
-	void refreshDirectoryList();
-	void resizeDirectoryListColumns();
+	bool askOverwrite(const std::string dest_path, bool& overwrite_set, bool& overwrite);
+
+	bool extractINTArchive(const std::string int_path, bool& overwrite_set, bool& overwrite);
+	bool extractFileFromISO(IsoReader& isor, const std::string file_iso_path, const char* dest_path, bool& overwrite_set, bool& overwrite);
+	void extractPTR2Files();
+
+	//void onDirectoryListContextMenuRequested(const QPoint& point);
+	//void onAddSearchDirectoryButtonClicked();
+	//void onRemoveSearchDirectoryButtonClicked();
+	//void refreshDirectoryList();
+	//void resizeDirectoryListColumns();
 
 	void onInputDevicesEnumerated(const QList<QPair<QString, QString>>& devices);
 	void onInputDeviceConnected(const QString& identifier, const QString& device_name);
@@ -65,7 +72,7 @@ private:
 	{
 		Page_Language,
 		Page_BIOS,
-		Page_GameList,
+		Page_PTR2,
 		Page_Controller,
 		Page_Complete,
 		Page_Count,
@@ -74,14 +81,15 @@ private:
 	void setupUi();
 	void setupLanguagePage();
 	void setupBIOSPage();
-	void setupGameListPage();
+	void setupPTR2Page();
+	//void setupGameListPage();
 	void setupControllerPage();
 
 	void pageChangedTo(int page);
 	void updatePageLabels(int prev_page);
 	void updatePageButtons();
 
-	void addPathToTable(const std::string& path, bool recursive);
+	//void addPathToTable(const std::string& path, bool recursive);
 
 	void openAutomaticMappingMenu(u32 port, QLabel* update_label);
 	void doDeviceAutomaticBinding(u32 port, QLabel* update_label, const QString& device);
@@ -94,3 +102,5 @@ private:
 
 	QList<QPair<QString, QString>> m_device_list;
 };
+
+

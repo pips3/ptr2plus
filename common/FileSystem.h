@@ -93,11 +93,16 @@ namespace FileSystem
 	/// Directory exists?
 	bool DirectoryExists(const char* path);
 
+	bool PathExists(const char* path);
+
 	/// Directory does not contain any files?
 	bool DirectoryIsEmpty(const char* path);
 
 	/// Delete file
 	bool DeleteFilePath(const char* path);
+
+	/// Delete file or folder
+	bool DeletePath(const char* path);
 
 	/// Rename file
 	bool RenamePath(const char* OldPath, const char* NewPath);

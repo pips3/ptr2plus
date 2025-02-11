@@ -24,6 +24,335 @@
 #include "SetupWizardDialog.h"
 
 #include <QtWidgets/QMessageBox>
+#include <common/FileSystem.h>
+
+//ptr2plus
+#include "CDVD/CDVD.h"
+#include <common/StringUtil.h>
+
+#include <common/FileSystem.h>
+#include <common/Path.h>
+#include <common/StringUtil.h>
+#include <pcsx2-qt/SetupWizardDialog.h>
+
+bool SetupWizardDialog::askOverwrite(const std::string dest_path, bool& overwrite_set, bool& overwrite)
+{
+	QMessageBox msgBox;
+	std::string msgBoxText = "Path " + std::string(Path::GetFileName(dest_path)) + " already exists. Overwrite?";
+	msgBox.setText(QString::fromStdString(msgBoxText));
+	msgBox.setInformativeText(QString::fromStdString(dest_path));
+	msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::YesToAll | QMessageBox::No | QMessageBox::NoToAll);
+	msgBox.setDefaultButton(QMessageBox::Yes);
+	int ret = msgBox.exec();
+	switch (ret)
+	{
+		case QMessageBox::Yes:
+			return true;
+			break;
+		case QMessageBox::YesToAll:
+			overwrite_set = true;
+			overwrite = true;
+			return true;
+			break;
+		case QMessageBox::No:
+			return false;
+			break;
+		case QMessageBox::NoToAll:
+			overwrite_set = true;
+			overwrite = false;
+			return false;
+			break;
+		default: //shouldnt be reached
+			break;
+	}
+	//shouldnt reach here
+}
+
+
+//adapted from pwf2int (unlicensed
+
+#define readsrc(x) if(src >= srcend) { break; } (x) = *src++;
+#define writedst(x) if(dst >= dstend) { break; } *dst++ = (x);
+
+
+// lzss_decompress is partially derived from Haruhiko Okumura (4/6/1989), in which they express the freedom to use, modify, and distribute their "LZSS.C" source code.
+void lzss_decompress(int EI, int EJ, int P, int rless, char* buffer, const char* srcstart, int srclen, char* dststart, int dstlen)
+{
+	int N = (1 << EI);
+	int F = (1 << EJ);
+
+	const char* src = srcstart;
+	const char* srcend = srcstart + srclen;
+
+	char* dst = dststart;
+	char* dstend = dststart + dstlen;
+
+	int r = (N - F) - rless;
+
+	int flags;
+	int c, i, j, k;
+	const int NMASK = (N - 1);
+	const int FMASK = (F - 1);
+	for (flags = 0;; flags >>= 1)
+	{
+		if (!(flags & 0x100))
+		{
+			readsrc(flags);
+			flags |= 0xFF00;
+		}
+		if (flags & 1)
+		{
+			readsrc(c);
+			writedst(c);
+			buffer[r++] = c;
+			r &= NMASK;
+		}
+		else
+		{
+			readsrc(i);
+			readsrc(j);
+			i |= ((j >> EJ) << 8);
+			j = (j & FMASK) + P;
+			for (k = 0; k <= j; k += 1)
+			{
+				c = buffer[(i + k) & NMASK];
+				writedst(c);
+				buffer[r++] = c;
+				r &= NMASK;
+			}
+		}
+	}
+}
+typedef unsigned char u_char;
+typedef unsigned short u_short;
+typedef unsigned int u_int;
+typedef unsigned long u_long;
+
+#define N 4096 /* Size of ring buffer */
+#define F 18 /* Upper limit */
+#define THRESHOLD 2
+#define lzss_read() *(fp_r)++;
+#define lzss_write(x) *(fp_w)++ = (x);
+  /* Ring buffer for INT decompression */
+
+void PackIntDecodeWait(u_char* fp_r, u_char* fp_w){
+
+	unsigned char RBuff[N + F - 1] = {};
+	u_int moto_size; /* Decode size                                  */
+	u_char* fp_w_end; /* End of write buffer (buffer + decode size)   */
+
+	int rp = N - F; /* Ring buffer position                         */
+	unsigned int flags = 0; /* LZSS flags                                   */
+
+	int i, c, c1, c2;
+
+	//printf("decode moto[%08x] saki[%08x]\n", fp_r, fp_w);
+	//asm("sync.l");
+
+	moto_size = *(u_int*)fp_r;
+	//fp_w = (u_char*)PR_UNCACHED(fp_w);
+	fp_w_end = fp_w + moto_size;
+
+	fp_r += 8;
+
+	for (i = 0; i < N - F; i++)
+	{
+		RBuff[i] = 0;
+	}
+
+	while (1)
+	{
+		if (fp_w > fp_w_end)
+		{
+			//printf(" over data pointer\n");
+			break;
+		}
+		if (fp_w == fp_w_end)
+		{
+			break;
+		}
+
+		if (((flags >>= 1) & 256) == 0)
+		{
+			c = lzss_read();
+			flags = c | 0xff00;
+		}
+
+		if (flags & 1)
+		{
+			c = lzss_read();
+			lzss_write(c);
+
+			RBuff[rp++] = c;
+			rp &= (N - 1);
+		}
+		else
+		{
+			c1 = lzss_read();
+			c2 = lzss_read();
+
+			c1 |= ((c2 & 0xf0) << 4);
+			c2 = (c2 & 0x0f) + THRESHOLD;
+
+			for (i = 0; i <= c2; i++)
+			{
+				c = RBuff[(c1 + i) & (N - 1)];
+				lzss_write(c);
+
+				RBuff[rp++] = c;
+				rp &= (N - 1);
+			}
+		}
+	}
+	return;
+}
+
+#define INT_RESOURCE_END 0
+#define INT_RESOURCE_TM0 1
+#define INT_RESOURCE_SOUNDS 2
+#define INT_RESOURCE_STAGE 3
+#define INT_RESOURCE_HATCOLORBASE 4
+
+struct pack_int_header
+{
+	u32 magic;
+	u32 filecount;
+	u32 resourcetype;
+	u32 fntableoffset;
+	u32 fntablesizeinbytes;
+	u32 lzss_section_size;
+	u32 unk[2];
+};
+
+struct lzss_header_t
+{
+	u32 uncompressed_size;
+	u32 compressed_size;
+	//u8 data[0];
+};
+
+struct filename_entry_t
+{
+	u32 offset;
+	u32 sizeof_file;
+};
+//int strutcure
+//each folder:
+//	int_header (32 bytes
+//  file offset table (4 * filecount
+//	fnt table (fnttablesizeinbytes
+//	lzss_header (8 bytes
+//	compressed data (compressed_size
+
+static_assert(sizeof(pack_int_header) == 0x20, "pack_int_header struct not packed to 0x!F bytes");
+bool SetupWizardDialog::extractINTArchive(const std::string int_path, bool& overwrite_set, bool& overwrite)
+{
+
+	const char* typenames[8] = {
+		"END",
+		"VRAM", //TEXTURES
+		"SND", //SOUNDS
+		"ONMEM", //PROPS
+		"R1", //HAT_RED
+		"R2", //HAT_BLUE
+		"R3", //HAT_PINK
+		"R4" //HAT_YELL
+	};
+
+	auto fp = FileSystem::OpenManagedCFile(int_path.c_str(), "rb+");
+	auto stream = fp.get();
+	
+	pack_int_header header;
+	std::fread(&header, sizeof(pack_int_header), 1, stream);
+	if (header.magic != 0x44332211)
+		return false; //error
+
+	//char* history = (char*)malloc(4096);
+	int folder_offset = 0;
+
+	while (header.resourcetype != INT_RESOURCE_END)
+	{
+		const char* restypename = typenames[header.resourcetype]; // get the type
+
+		lzss_header_t lzss;
+		std::fseek(stream, folder_offset + header.fntableoffset + header.fntablesizeinbytes, SEEK_SET);
+		std::fread(&lzss, sizeof(lzss), 1, stream); // get lzzs header
+
+		u_char* uncompressed_folder = (u_char*)(malloc(lzss.uncompressed_size));
+		u_char* compressed_folder = (u_char*)(malloc(sizeof(u32) * 2 + lzss.compressed_size));
+
+		*(int*)compressed_folder = lzss.uncompressed_size;
+		*(int*)(compressed_folder + sizeof(u32)) = lzss.compressed_size;
+		std::fread(compressed_folder + sizeof(u32) * 2, lzss.compressed_size, 1, stream);
+
+		//memset(history, 0, 4096); // set history to 0s
+		//lzss_decompress(12, 4, 2, 2, history, compressed_folder, lzss.compressed_size, uncompressed_folder, lzss.uncompressed_size); // uncompress into uncompressed size
+		PackIntDecodeWait(compressed_folder, uncompressed_folder);
+		std::string extract_path = Path::Combine(Path::StripExtension(int_path), restypename);
+		
+		FileSystem::EnsureDirectoryExists(extract_path.c_str(), true);
+
+		for (u32 i = 0; i < header.filecount; i ++) // iterate over every file
+		{ 
+			//get filename entry
+			filename_entry_t entry; 
+			std::fseek(stream, folder_offset + header.fntableoffset + sizeof(filename_entry_t) * i, SEEK_SET);
+			std::fread(&entry, sizeof(filename_entry_t), 1, stream); // get name
+
+			//get filename
+			std::fseek(stream, folder_offset + header.fntableoffset + sizeof(filename_entry_t) * header.filecount + entry.offset, SEEK_SET);
+			char buf[900] = {};
+			std::fgets(buf, sizeof(buf), stream);
+			std::string filename = buf;
+			std::string tmp = Path::Combine(extract_path, filename);
+			const char* extract_path_file = tmp.c_str();
+
+			//get file uncompressed data offset
+			u32 fileoffset;
+			std::fseek(stream, folder_offset + sizeof(pack_int_header) + sizeof(u32) * i, SEEK_SET);
+			std::fread(&fileoffset, sizeof(u32), 1, stream); // get offsets
+			
+			if (!FileSystem::PathExists(extract_path_file))
+			{
+				if (!FileSystem::WriteBinaryFile(extract_path_file, uncompressed_folder + fileoffset, entry.sizeof_file))
+					return false;
+			}
+			else if (!overwrite_set)
+			{
+				if (askOverwrite(extract_path_file, overwrite_set, overwrite))
+				{
+					FileSystem::DeletePath(extract_path_file);
+					if (!FileSystem::WriteBinaryFile(extract_path_file, uncompressed_folder + fileoffset, entry.sizeof_file))
+						return false;
+				}
+			}
+			else if (overwrite)
+			{
+				FileSystem::DeletePath(extract_path_file);
+				if (!FileSystem::WriteBinaryFile(extract_path_file, uncompressed_folder + fileoffset, entry.sizeof_file))
+					return false;
+			}
+			if (FileSystem::DirectoryExists(extract_path_file))
+			{
+				QMessageBox::information(QtUtils::GetRootWidget(m_ui.isoDirectory), tr("Debug"), "Error: Cannot skip this path as it is a folder, when it should be a file. Rename/Delete the folder and try again.");
+				return false; //error, existing path is a directory when it should be a file
+			}
+		}
+		// move to next section
+		folder_offset += header.fntableoffset + header.fntablesizeinbytes + header.lzss_section_size; //update offset
+		std::fseek(stream, folder_offset, SEEK_SET);
+		std::fread(&header, sizeof(pack_int_header), 1, stream); //read new header
+		if (header.magic != 0x44332211)
+			return false; //error
+
+		free(compressed_folder);
+		free(uncompressed_folder); // free uncompressed data
+	}
+	//free(history); // free history
+	return true;
+}
+
+
 
 SetupWizardDialog::SetupWizardDialog()
 {
@@ -44,7 +373,7 @@ SetupWizardDialog::~SetupWizardDialog()
 void SetupWizardDialog::resizeEvent(QResizeEvent* event)
 {
 	QDialog::resizeEvent(event);
-	resizeDirectoryListColumns();
+	//resizeDirectoryListColumns();
 }
 
 bool SetupWizardDialog::canShowNextPage()
@@ -68,18 +397,27 @@ bool SetupWizardDialog::canShowNextPage()
 		}
 		break;
 
-		case Page_GameList:
+		case Page_PTR2:
 		{
-			if (m_ui.searchDirectoryList->rowCount() == 0)
+			if (m_ui.progressBar->value() == 0)
 			{
-				if (QMessageBox::question(this, tr("Warning"),
-						tr("No game directories have been selected. You will have to manually open any game dumps you "
-						   "want to play, PCSX2's list will be empty.\n\nAre you sure you want to continue?")) !=
-					QMessageBox::Yes)
+
+				if (QMessageBox::warning(this, tr("Warning"),
+						tr("Unable to proceed without an extracted ISO.")))
 				{
 					return false;
 				}
 			}
+			else if (m_ui.progressBar->value() != 100) //and extraction in process
+			{
+				if (QMessageBox::warning(this, tr("Warning"),
+						tr("Unable to proceed until extraction of the ISO is complete.")))
+				{
+					return false;
+				}
+			}
+
+
 		}
 		break;
 
@@ -124,8 +462,8 @@ void SetupWizardDialog::pageChangedTo(int page)
 {
 	switch (page)
 	{
-		case Page_GameList:
-			resizeDirectoryListColumns();
+		case Page_PTR2:
+			//resizeDirectoryListColumns();
 			break;
 
 		default:
@@ -177,7 +515,7 @@ void SetupWizardDialog::setupUi()
 
 	m_page_labels[Page_Language] = m_ui.labelLanguage;
 	m_page_labels[Page_BIOS] = m_ui.labelBIOS;
-	m_page_labels[Page_GameList] = m_ui.labelGameList;
+	m_page_labels[Page_PTR2] = m_ui.labelPTR2;
 	m_page_labels[Page_Controller] = m_ui.labelController;
 	m_page_labels[Page_Complete] = m_ui.labelComplete;
 
@@ -187,7 +525,9 @@ void SetupWizardDialog::setupUi()
 
 	setupLanguagePage();
 	setupBIOSPage();
-	setupGameListPage();
+	setupPTR2Page();
+	//need a mods page
+	//setupGameListPage();
 	setupControllerPage();
 }
 
@@ -204,8 +544,8 @@ void SetupWizardDialog::setupLanguagePage()
 	connect(
 		m_ui.language, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SetupWizardDialog::languageChanged);
 
-	SettingWidgetBinder::BindWidgetToBoolSetting(
-		nullptr, m_ui.autoUpdateEnabled, "AutoUpdater", "CheckAtStartup", true);
+	//SettingWidgetBinder::BindWidgetToBoolSetting(
+	//	nullptr, m_ui.autoUpdateEnabled, "AutoUpdater", "CheckAtStartup", true);
 }
 
 void SetupWizardDialog::themeChanged()
@@ -264,6 +604,169 @@ void SetupWizardDialog::listRefreshed(const QVector<BIOSInfo>& items)
 	m_ui.biosList->setEnabled(true);
 }
 
+void SetupWizardDialog::setupPTR2Page()
+{
+	SettingWidgetBinder::BindWidgetToFolderSetting(nullptr, m_ui.ptr2Directory, m_ui.browsePtr2Directory,
+		nullptr, m_ui.ptr2ResetDirectory, "Folders", "PTR2",
+		Path::Combine(EmuFolders::DataRoot, "ptr2"));
+	connect(m_ui.ExtractFiles, &QPushButton::clicked, this, &SetupWizardDialog::extractPTR2Files);
+
+	QLineEdit* isoDirectory = m_ui.isoDirectory;
+
+	QObject::connect(m_ui.browseIsoDirectory, &QAbstractButton::clicked, this, [isoDirectory]() {
+		QString path(isoDirectory->text());
+		if (path.isEmpty())
+			path = QString::fromStdString(EmuFolders::DataRoot);
+		const QString isoPath(QDir::toNativeSeparators(QFileDialog::getOpenFileName(QtUtils::GetRootWidget(isoDirectory),
+			qApp->translate("SettingWidgetBinder", "Select PaRappa The Rapper 2 ISO file"),
+			path,
+			QString::fromStdString("ISO Image (*.iso);;All Files (*)"))));
+		if (isoPath.isEmpty())
+			return;
+		//QMessageBox::critical(QtUtils::GetRootWidget(isoDirectory), tr("Debug"),
+		//	tr(isoPath.toStdString().c_str())
+		//	);
+		isoDirectory->setText(isoPath);
+	});
+}
+//md5/hash checking stuff is unfinished (low priority
+struct file_entry
+{
+	std::string path;
+	//std::string md5;
+};
+
+//read a single db file chunk (path, md5) and return
+
+bool ReadOneFile(FILE* stream, file_entry &entry)
+{
+	long off = ftell(stream);
+
+	char buf[900];
+	if (fgets(buf, sizeof(buf), stream) == nullptr)
+		return false;
+	entry.path = buf;
+
+	//fgets puts file offset at end for some reason, so reset it:
+	off += entry.path.length();
+	std::fseek(stream, off, SEEK_SET);
+	if (entry.path.back() == '\n')
+		entry.path = entry.path.substr(0, entry.path.length() - 2);
+
+	/* char buf2[900];
+		if (fgets(buf2, sizeof(buf2), stream) == nullptr)
+			return false;
+	entry.md5 = buf2;
+
+	std::fseek(stream, off + entry.md5.length() + 1, SEEK_SET);
+	*/
+	return true;
+}
+
+bool SetupWizardDialog::extractFileFromISO(IsoReader& isor, const std::string file_iso_path, const char* dest_path, bool& overwrite_set, bool& overwrite)
+{
+	if (isor.Open())
+	{
+		if (!isor.FileExists(file_iso_path))
+			return false;
+			//QMessageBox::critical(QtUtils::GetRootWidget(m_ui.isoDirectory), tr("Debug"), "Help");
+
+		std::vector<u8> data;
+		if (!isor.ReadFile(file_iso_path, &data))
+			return false;
+
+		if (!FileSystem::PathExists(dest_path)) //if file doesnt exist
+		{
+			if (!FileSystem::WriteBinaryFile(dest_path, data.data(), data.size()))
+				return false;
+		}
+		else if (!overwrite_set) //if file exists but user hasn't said whether to always overwrite or not
+		{
+			if (askOverwrite(std::string(dest_path), overwrite_set, overwrite)) //if user said yes to overwrite
+			{
+				FileSystem::DeletePath(dest_path);
+				if (!FileSystem::WriteBinaryFile(dest_path, data.data(), data.size()))
+					return false;
+			}
+			//if user said no dont do anything
+		}
+		else if (overwrite) //if file exists and user said to overwrite all
+		{
+			FileSystem::DeleteFilePath(dest_path);
+			if (!FileSystem::WriteBinaryFile(dest_path, data.data(), data.size()))
+				return false;
+		}
+		if (FileSystem::DirectoryExists(dest_path))
+		{
+			QMessageBox::information(QtUtils::GetRootWidget(m_ui.isoDirectory), tr("Error"), "Folder exists with same name as file. Rename or remove the folder and try again.");
+			return false; //error, existing path is a directory when it should be a file
+		}
+		
+		return true;
+	}
+
+}
+
+//todo:
+//iso validation. via CRC maybe?
+//error handling
+//general cleanup
+
+//Why did I hardcode it to find files via a db file? instead of just find all files in the iso??
+//Because It was going to validate each file's via a hash, but I can't be bothered to add the hash calculation yet
+void SetupWizardDialog::extractPTR2Files()
+{
+	bool overwrite_set = false;
+	bool overwrite = false;
+
+	//setup cdvd to read iso
+	CDVDsys_ClearFiles();
+	CDVDsys_SetFile(CDVD_SourceType::Iso, m_ui.isoDirectory->text().toStdString());
+	CDVDsys_ChangeSource(CDVD_SourceType::Iso);
+
+	if (!DoCDVDopen())
+		return;
+	IsoReader isor;
+	//Hardcode as this is const
+	const int iso_filedb_count = 4;
+
+	std::string extract_path = m_ui.ptr2Directory->text().toStdString();
+
+	//open db file
+	const std::string ptr2filedb_filename = Path::Combine(EmuFolders::Resources, "iso_extract_db.txt");
+	auto fp = FileSystem::OpenManagedCFile(ptr2filedb_filename.c_str(), "rb+");
+	auto stream = fp.get();
+	double progress_increment = 100 / iso_filedb_count;
+	m_ui.progressBar->setValue(0);
+	for (int i = 0; i < iso_filedb_count; i++)
+	{
+		
+		file_entry entry;
+		ReadOneFile(stream, entry); //needs error handle
+		
+		std::string dest_path = Path::Combine(extract_path, entry.path);
+		std::string dest_dir = std::string(Path::GetDirectory(dest_path));
+		FileSystem::EnsureDirectoryExists(dest_dir.c_str(), true); //needs error handle
+
+		if (!extractFileFromISO(isor, entry.path, dest_path.c_str(), overwrite_set, overwrite))
+			return; //error handle
+
+		//extract int archives
+		if (StringUtil::compareNoCase(Path::GetExtension(entry.path.c_str()), "INT"))
+		{
+			if (!extractINTArchive(dest_path.c_str(), overwrite_set, overwrite))
+				return; //error handle
+		}
+
+		m_ui.progressBar->setValue(progress_increment * (i + 1));
+		
+		
+	}
+	m_ui.progressBar->setValue(100);
+}
+
+
+/*
 void SetupWizardDialog::setupGameListPage()
 {
 	m_ui.searchDirectoryList->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -285,6 +788,8 @@ void SetupWizardDialog::setupGameListPage()
 	refreshDirectoryList();
 }
 
+
+
 void SetupWizardDialog::onDirectoryListContextMenuRequested(const QPoint& point)
 {
 	QModelIndexList selection = m_ui.searchDirectoryList->selectionModel()->selectedIndexes();
@@ -300,6 +805,7 @@ void SetupWizardDialog::onDirectoryListContextMenuRequested(const QPoint& point)
 		[this, row]() { QtUtils::OpenURL(this, QUrl::fromLocalFile(m_ui.searchDirectoryList->item(row, 0)->text())); });
 	menu.exec(m_ui.searchDirectoryList->mapToGlobal(point));
 }
+
 
 void SetupWizardDialog::onAddSearchDirectoryButtonClicked()
 {
@@ -393,7 +899,7 @@ void SetupWizardDialog::resizeDirectoryListColumns()
 {
 	QtUtils::ResizeColumnsForTableView(m_ui.searchDirectoryList, {-1, 100});
 }
-
+*/
 void SetupWizardDialog::setupControllerPage()
 {
 	static constexpr u32 NUM_PADS = 2;

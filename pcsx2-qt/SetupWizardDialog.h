@@ -52,6 +52,7 @@ private Q_SLOTS:
 
 	bool extractINTArchive(const std::string int_path, bool& overwrite_set, bool& overwrite);
 	bool extractFileFromISO(IsoReader& isor, const std::string file_iso_path, const char* dest_path, bool& overwrite_set, bool& overwrite);
+	void DisplayErrorMessage(std::string error, std::string path = "");
 	void extractPTR2Files();
 
 	//void onDirectoryListContextMenuRequested(const QPoint& point);

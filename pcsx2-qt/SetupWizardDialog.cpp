@@ -39,8 +39,11 @@ bool SetupWizardDialog::askOverwrite(const std::string dest_path, bool& overwrit
 {
 	QMessageBox msgBox;
 	std::string msgBoxText = "Path " + std::string(Path::GetFileName(dest_path)) + " already exists. Overwrite?";
+	msgBox.setWindowIcon(QApplication::style()->standardIcon(QStyle::SP_MessageBoxQuestion));
+	msgBox.setIcon(QMessageBox::Question);
 	msgBox.setText(QString::fromStdString(msgBoxText));
-	msgBox.setInformativeText(QString::fromStdString(dest_path));
+	msgBox.setWindowTitle("Collision");
+	msgBox.setDetailedText(QString::fromStdString(dest_path));
 	msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::YesToAll | QMessageBox::No | QMessageBox::NoToAll);
 	msgBox.setDefaultButton(QMessageBox::Yes);
 	int ret = msgBox.exec();
@@ -68,13 +71,9 @@ bool SetupWizardDialog::askOverwrite(const std::string dest_path, bool& overwrit
 	//shouldnt reach here
 }
 
-
 //adapted from pwf2int (unlicensed
-
 #define readsrc(x) if(src >= srcend) { break; } (x) = *src++;
 #define writedst(x) if(dst >= dstend) { break; } *dst++ = (x);
-
-
 // lzss_decompress is partially derived from Haruhiko Okumura (4/6/1989), in which they express the freedom to use, modify, and distribute their "LZSS.C" source code.
 void lzss_decompress(int EI, int EJ, int P, int rless, char* buffer, const char* srcstart, int srclen, char* dststart, int dstlen)
 {
@@ -236,18 +235,17 @@ struct filename_entry_t
 	u32 offset;
 	u32 sizeof_file;
 };
-//int strutcure
+
+//int structure
 //each folder:
 //	int_header (32 bytes
 //  file offset table (4 * filecount
 //	fnt table (fnttablesizeinbytes
 //	lzss_header (8 bytes
 //	compressed data (compressed_size
-
 static_assert(sizeof(pack_int_header) == 0x20, "pack_int_header struct not packed to 0x!F bytes");
 bool SetupWizardDialog::extractINTArchive(const std::string int_path, bool& overwrite_set, bool& overwrite)
 {
-
 	const char* typenames[8] = {
 		"END",
 		"VRAM", //TEXTURES
@@ -260,14 +258,23 @@ bool SetupWizardDialog::extractINTArchive(const std::string int_path, bool& over
 	};
 
 	auto fp = FileSystem::OpenManagedCFile(int_path.c_str(), "rb+");
+	if (!fp) {
+		DisplayErrorMessage("Could not open INT file. (Permission Error?)", int_path);
+		return false;
+	}
 	auto stream = fp.get();
 	
 	pack_int_header header;
 	std::fread(&header, sizeof(pack_int_header), 1, stream);
-	if (header.magic != 0x44332211)
-		return false; //error
+	if (ferror(stream)) {
+		DisplayErrorMessage("Problem reading INT file.", "Error reading header at offset: 0, path : " + int_path);
+		return false;
+	}
+	if (header.magic != 0x44332211) {
+		DisplayErrorMessage("Problem reading INT file.", "Header magic did not match at offset: 0, path : " + int_path);
+		return false;
+	}
 
-	//char* history = (char*)malloc(4096);
 	int folder_offset = 0;
 
 	while (header.resourcetype != INT_RESOURCE_END)
@@ -277,14 +284,23 @@ bool SetupWizardDialog::extractINTArchive(const std::string int_path, bool& over
 		lzss_header_t lzss;
 		std::fseek(stream, folder_offset + header.fntableoffset + header.fntablesizeinbytes, SEEK_SET);
 		std::fread(&lzss, sizeof(lzss), 1, stream); // get lzzs header
-
+		if (ferror(stream)) {
+			int offset = folder_offset + header.fntableoffset + header.fntablesizeinbytes;
+			DisplayErrorMessage("Problem reading INT file.", "Error reading lzss header at offset: " + std::to_string(offset) + ", path: " + int_path);
+			return false;
+		}
 		u_char* uncompressed_folder = (u_char*)(malloc(lzss.uncompressed_size));
 		u_char* compressed_folder = (u_char*)(malloc(sizeof(u32) * 2 + lzss.compressed_size));
 
 		*(int*)compressed_folder = lzss.uncompressed_size;
 		*(int*)(compressed_folder + sizeof(u32)) = lzss.compressed_size;
 		std::fread(compressed_folder + sizeof(u32) * 2, lzss.compressed_size, 1, stream);
-
+		if (ferror(stream))
+		{
+			int offset = folder_offset + header.fntableoffset + header.fntablesizeinbytes + sizeof(lzss_header_t);
+			DisplayErrorMessage("Problem reading INT file.", "Error reading compressed data at offset: " + std::to_string(offset) + ", path: " + int_path);
+			return false;
+		}
 		//memset(history, 0, 4096); // set history to 0s
 		//lzss_decompress(12, 4, 2, 2, history, compressed_folder, lzss.compressed_size, uncompressed_folder, lzss.uncompressed_size); // uncompress into uncompressed size
 		PackIntDecodeWait(compressed_folder, uncompressed_folder);
@@ -298,11 +314,22 @@ bool SetupWizardDialog::extractINTArchive(const std::string int_path, bool& over
 			filename_entry_t entry; 
 			std::fseek(stream, folder_offset + header.fntableoffset + sizeof(filename_entry_t) * i, SEEK_SET);
 			std::fread(&entry, sizeof(filename_entry_t), 1, stream); // get name
-
+			if (ferror(stream))
+			{
+				int offset = folder_offset + header.fntableoffset + sizeof(filename_entry_t) * i;
+				DisplayErrorMessage("Problem reading INT file.", "Error reading filename_entry chunk at offset: " + std::to_string(offset) + ", path: " + int_path);
+				return false;
+			}
 			//get filename
 			std::fseek(stream, folder_offset + header.fntableoffset + sizeof(filename_entry_t) * header.filecount + entry.offset, SEEK_SET);
 			char buf[900] = {};
-			std::fgets(buf, sizeof(buf), stream);
+			if (std::fgets(buf, sizeof(buf), stream) == nullptr)
+			{
+				int offset = folder_offset + header.fntableoffset + sizeof(filename_entry_t) * header.filecount + entry.offset;
+				DisplayErrorMessage("Problem reading INT file.", "Error reading string filename_entry string at offset: " + std::to_string(offset) + ", path: " + int_path);
+				return false;
+			}
+
 			std::string filename = buf;
 			std::string tmp = Path::Combine(extract_path, filename);
 			const char* extract_path_file = tmp.c_str();
@@ -311,48 +338,69 @@ bool SetupWizardDialog::extractINTArchive(const std::string int_path, bool& over
 			u32 fileoffset;
 			std::fseek(stream, folder_offset + sizeof(pack_int_header) + sizeof(u32) * i, SEEK_SET);
 			std::fread(&fileoffset, sizeof(u32), 1, stream); // get offsets
-			
+			if (ferror(stream))
+			{
+				int offset = folder_offset + sizeof(pack_int_header) + sizeof(u32) * i;
+				DisplayErrorMessage("Problem reading INT file.", "Error reading uncompressed file offset chunk at offset: " + std::to_string(offset) + ", path: " + extract_path_file);
+				return false;
+			}
 			if (!FileSystem::PathExists(extract_path_file))
 			{
 				if (!FileSystem::WriteBinaryFile(extract_path_file, uncompressed_folder + fileoffset, entry.sizeof_file))
+				{
+					DisplayErrorMessage("Could not write file from INT archive. (Permission Error?)", extract_path_file);
 					return false;
+				}
 			}
 			else if (!overwrite_set)
 			{
 				if (askOverwrite(extract_path_file, overwrite_set, overwrite))
 				{
-					FileSystem::DeletePath(extract_path_file);
-					if (!FileSystem::WriteBinaryFile(extract_path_file, uncompressed_folder + fileoffset, entry.sizeof_file))
+					if (!FileSystem::DeletePath(extract_path_file))
+					{
+						DisplayErrorMessage("Could not overwrite existing file from INT archive. (Permission Error?)", extract_path_file);
 						return false;
+					}
+					if (!FileSystem::WriteBinaryFile(extract_path_file, uncompressed_folder + fileoffset, entry.sizeof_file))
+					{
+						DisplayErrorMessage("Could not write file from INT archive. (Permission Error?)", extract_path_file);
+						return false;
+					}
 				}
 			}
 			else if (overwrite)
 			{
-				FileSystem::DeletePath(extract_path_file);
-				if (!FileSystem::WriteBinaryFile(extract_path_file, uncompressed_folder + fileoffset, entry.sizeof_file))
+				if (!FileSystem::DeletePath(extract_path_file))
+				{
+					DisplayErrorMessage("Could not overwrite existing file from INT archive. (Permission Error?)", extract_path_file);
 					return false;
-			}
-			if (FileSystem::DirectoryExists(extract_path_file))
-			{
-				QMessageBox::information(QtUtils::GetRootWidget(m_ui.isoDirectory), tr("Debug"), "Error: Cannot skip this path as it is a folder, when it should be a file. Rename/Delete the folder and try again.");
-				return false; //error, existing path is a directory when it should be a file
+				}
+				if (!FileSystem::WriteBinaryFile(extract_path_file, uncompressed_folder + fileoffset, entry.sizeof_file))
+				{
+					DisplayErrorMessage("Could not write file from INT archive. (Permission Error?)", extract_path_file);
+					return false;
+				}
 			}
 		}
 		// move to next section
 		folder_offset += header.fntableoffset + header.fntablesizeinbytes + header.lzss_section_size; //update offset
 		std::fseek(stream, folder_offset, SEEK_SET);
 		std::fread(&header, sizeof(pack_int_header), 1, stream); //read new header
+		if (ferror(stream))
+		{
+			DisplayErrorMessage("Problem reading INT file.", "Error reading header as offset: " + std::to_string(folder_offset) + ", path: " + int_path);
+			return false;
+		}
 		if (header.magic != 0x44332211)
-			return false; //error
-
+		{
+			DisplayErrorMessage("Problem reading INT file.", "Header magic did not match at offset: 0, path : " + int_path);
+			return false;
+		}
 		free(compressed_folder);
 		free(uncompressed_folder); // free uncompressed data
 	}
-	//free(history); // free history
 	return true;
 }
-
-
 
 SetupWizardDialog::SetupWizardDialog()
 {
@@ -667,65 +715,97 @@ bool SetupWizardDialog::extractFileFromISO(IsoReader& isor, const std::string fi
 {
 	if (isor.Open())
 	{
-		if (!isor.FileExists(file_iso_path))
+		if (!isor.FileExists(file_iso_path)){
+			DisplayErrorMessage("Could not find file in ISO. (Corrupt/incorrect ISO?)", file_iso_path);
 			return false;
-			//QMessageBox::critical(QtUtils::GetRootWidget(m_ui.isoDirectory), tr("Debug"), "Help");
+		}
 
 		std::vector<u8> data;
-		if (!isor.ReadFile(file_iso_path, &data))
+		if (!isor.ReadFile(file_iso_path, &data)) {
+			DisplayErrorMessage("Could not read file from ISO. (Corrupt/incorrect ISO?)", file_iso_path);
 			return false;
+		}
 
 		if (!FileSystem::PathExists(dest_path)) //if file doesnt exist
 		{
-			if (!FileSystem::WriteBinaryFile(dest_path, data.data(), data.size()))
+			if (!FileSystem::WriteBinaryFile(dest_path, data.data(), data.size())) {
+				DisplayErrorMessage("Could not write file to extract directory. (Permission Error?)", dest_path);
 				return false;
+			}
 		}
 		else if (!overwrite_set) //if file exists but user hasn't said whether to always overwrite or not
 		{
 			if (askOverwrite(std::string(dest_path), overwrite_set, overwrite)) //if user said yes to overwrite
 			{
-				FileSystem::DeletePath(dest_path);
-				if (!FileSystem::WriteBinaryFile(dest_path, data.data(), data.size()))
+				if (!FileSystem::DeletePath(dest_path)) {
+					DisplayErrorMessage("Could not overwrite existing file in extract directory. (Permission Error?)", dest_path);
 					return false;
+				}
+				if (!FileSystem::WriteBinaryFile(dest_path, data.data(), data.size()))
+				{
+					DisplayErrorMessage("Could not write file to extract directory. (Permission Error?)", dest_path);
+					return false;
+				}
 			}
 			//if user said no dont do anything
 		}
 		else if (overwrite) //if file exists and user said to overwrite all
 		{
-			FileSystem::DeleteFilePath(dest_path);
-			if (!FileSystem::WriteBinaryFile(dest_path, data.data(), data.size()))
+			if (!FileSystem::DeletePath(dest_path))
+			{
+				DisplayErrorMessage("Could not overwrite existing file in extract directory. (Permission Error?)", dest_path);
 				return false;
+			}
+			if (!FileSystem::WriteBinaryFile(dest_path, data.data(), data.size()))
+			{
+				DisplayErrorMessage("Could not write file to extract directory. (Permission Error?)", dest_path);
+				return false;
+			}
 		}
-		if (FileSystem::DirectoryExists(dest_path))
-		{
-			QMessageBox::information(QtUtils::GetRootWidget(m_ui.isoDirectory), tr("Error"), "Folder exists with same name as file. Rename or remove the folder and try again.");
-			return false; //error, existing path is a directory when it should be a file
-		}
-		
 		return true;
 	}
-
 }
-
-//todo:
+void SetupWizardDialog::DisplayErrorMessage(std::string error, std::string path)
+{
+	QMessageBox msgBox;
+	msgBox.setWindowTitle("Error");
+	msgBox.setWindowIcon(QApplication::style()->standardIcon(QStyle::SP_MessageBoxCritical));
+	msgBox.setIcon(QMessageBox::Critical);
+	msgBox.setText(QString::fromStdString(error));
+	if (path != "")
+		msgBox.setDetailedText(QString::fromStdString("PATH: " + path));
+	msgBox.setStandardButtons(QMessageBox::Ok);
+	int ret = msgBox.exec();
+}
+	//todo:
 //iso validation. via CRC maybe?
-//error handling
 //general cleanup
 
 //Why did I hardcode it to find files via a db file? instead of just find all files in the iso??
 //Because It was going to validate each file's via a hash, but I can't be bothered to add the hash calculation yet
 void SetupWizardDialog::extractPTR2Files()
 {
+	//DisplayErrorMessage("Could not write file to extract directory. (Permission Error?)", "C:\\Users\\Owner\\Owner\\yeah\\true\\real moding game\\moderfile.int");			
 	bool overwrite_set = false;
 	bool overwrite = false;
-
+	std::string iso_path = m_ui.isoDirectory->text().toStdString();
+	if (iso_path == "") {
+		QMessageBox::information(QtUtils::GetRootWidget(m_ui.isoDirectory), tr("Error"), "Please select a PaRappa 2 ISO.");
+		return;
+	}
+	if (!FileSystem::FileExists(iso_path.c_str())) {
+		DisplayErrorMessage("Invalid input ISO path.", iso_path);
+		return;
+	}
 	//setup cdvd to read iso
 	CDVDsys_ClearFiles();
-	CDVDsys_SetFile(CDVD_SourceType::Iso, m_ui.isoDirectory->text().toStdString());
+	CDVDsys_SetFile(CDVD_SourceType::Iso, iso_path);
 	CDVDsys_ChangeSource(CDVD_SourceType::Iso);
 
-	if (!DoCDVDopen())
+	if (!DoCDVDopen()){
+		DisplayErrorMessage("Could not open input ISO file. (Permission Error?)", iso_path);
 		return;
+	}
 	IsoReader isor;
 	//Hardcode as this is const
 	const int iso_filedb_count = 4;
@@ -735,32 +815,38 @@ void SetupWizardDialog::extractPTR2Files()
 	//open db file
 	const std::string ptr2filedb_filename = Path::Combine(EmuFolders::Resources, "iso_extract_db.txt");
 	auto fp = FileSystem::OpenManagedCFile(ptr2filedb_filename.c_str(), "rb+");
+	if (!fp) {
+		DisplayErrorMessage("Could not open iso extract database resource. (Permission Error?)", ptr2filedb_filename);
+		return;
+	}
 	auto stream = fp.get();
 	double progress_increment = 100 / iso_filedb_count;
 	m_ui.progressBar->setValue(0);
 	for (int i = 0; i < iso_filedb_count; i++)
 	{
-		
 		file_entry entry;
-		ReadOneFile(stream, entry); //needs error handle
+		if (!ReadOneFile(stream, entry)) {
+			DisplayErrorMessage("Could not read iso extract database resource. (Permission Error?)", ptr2filedb_filename);
+			return;
+		}
 		
 		std::string dest_path = Path::Combine(extract_path, entry.path);
 		std::string dest_dir = std::string(Path::GetDirectory(dest_path));
-		FileSystem::EnsureDirectoryExists(dest_dir.c_str(), true); //needs error handle
+		if (!FileSystem::EnsureDirectoryExists(dest_dir.c_str(), true)) {
+			DisplayErrorMessage("Could not create folder in extract directory. (Permission Error?)", dest_dir);
+			return;
+		}
 
 		if (!extractFileFromISO(isor, entry.path, dest_path.c_str(), overwrite_set, overwrite))
-			return; //error handle
+			return;
 
 		//extract int archives
 		if (StringUtil::compareNoCase(Path::GetExtension(entry.path.c_str()), "INT"))
 		{
 			if (!extractINTArchive(dest_path.c_str(), overwrite_set, overwrite))
-				return; //error handle
+				return;
 		}
-
 		m_ui.progressBar->setValue(progress_increment * (i + 1));
-		
-		
 	}
 	m_ui.progressBar->setValue(100);
 }

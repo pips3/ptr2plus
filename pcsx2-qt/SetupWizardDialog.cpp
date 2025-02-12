@@ -259,7 +259,7 @@ bool SetupWizardDialog::extractINTArchive(const std::string int_path, bool& over
 
 	auto fp = FileSystem::OpenManagedCFile(int_path.c_str(), "rb+");
 	if (!fp) {
-		DisplayErrorMessage("Could not open INT file. (Permission Error?)", int_path);
+		DisplayErrorMessage("Could not open INT file. (Check permissions?)", int_path);
 		return false;
 	}
 	auto stream = fp.get();
@@ -348,7 +348,7 @@ bool SetupWizardDialog::extractINTArchive(const std::string int_path, bool& over
 			{
 				if (!FileSystem::WriteBinaryFile(extract_path_file, uncompressed_folder + fileoffset, entry.sizeof_file))
 				{
-					DisplayErrorMessage("Could not write file from INT archive. (Permission Error?)", extract_path_file);
+					DisplayErrorMessage("Could not write file from INT archive. (Check space/permissions?)", extract_path_file);
 					return false;
 				}
 			}
@@ -358,12 +358,12 @@ bool SetupWizardDialog::extractINTArchive(const std::string int_path, bool& over
 				{
 					if (!FileSystem::DeletePath(extract_path_file))
 					{
-						DisplayErrorMessage("Could not overwrite existing file from INT archive. (Permission Error?)", extract_path_file);
+						DisplayErrorMessage("Could not overwrite existing file from INT archive. (Check permissions?)", extract_path_file);
 						return false;
 					}
 					if (!FileSystem::WriteBinaryFile(extract_path_file, uncompressed_folder + fileoffset, entry.sizeof_file))
 					{
-						DisplayErrorMessage("Could not write file from INT archive. (Permission Error?)", extract_path_file);
+						DisplayErrorMessage("Could not write file from INT archive. (Check space/permissions?)", extract_path_file);
 						return false;
 					}
 				}
@@ -372,12 +372,12 @@ bool SetupWizardDialog::extractINTArchive(const std::string int_path, bool& over
 			{
 				if (!FileSystem::DeletePath(extract_path_file))
 				{
-					DisplayErrorMessage("Could not overwrite existing file from INT archive. (Permission Error?)", extract_path_file);
+					DisplayErrorMessage("Could not overwrite existing file from INT archive. (Check permissions?)", extract_path_file);
 					return false;
 				}
 				if (!FileSystem::WriteBinaryFile(extract_path_file, uncompressed_folder + fileoffset, entry.sizeof_file))
 				{
-					DisplayErrorMessage("Could not write file from INT archive. (Permission Error?)", extract_path_file);
+					DisplayErrorMessage("Could not write file from INT archive. (Check space/permissions?)", extract_path_file);
 					return false;
 				}
 			}
@@ -654,6 +654,7 @@ void SetupWizardDialog::listRefreshed(const QVector<BIOSInfo>& items)
 
 void SetupWizardDialog::setupPTR2Page()
 {
+	FileSystem::
 	SettingWidgetBinder::BindWidgetToFolderSetting(nullptr, m_ui.ptr2Directory, m_ui.browsePtr2Directory,
 		nullptr, m_ui.ptr2ResetDirectory, "Folders", "PTR2",
 		Path::Combine(EmuFolders::DataRoot, "ptr2"));
@@ -716,20 +717,20 @@ bool SetupWizardDialog::extractFileFromISO(IsoReader& isor, const std::string fi
 	if (isor.Open())
 	{
 		if (!isor.FileExists(file_iso_path)){
-			DisplayErrorMessage("Could not find file in ISO. (Corrupt/incorrect ISO?)", file_iso_path);
+			DisplayErrorMessage("Could not find file in ISO. (Corrupt/wrong ISO?)", file_iso_path);
 			return false;
 		}
 
 		std::vector<u8> data;
 		if (!isor.ReadFile(file_iso_path, &data)) {
-			DisplayErrorMessage("Could not read file from ISO. (Corrupt/incorrect ISO?)", file_iso_path);
+			DisplayErrorMessage("Could not read file from ISO. (Corrupt/wrong ISO?)", file_iso_path);
 			return false;
 		}
 
 		if (!FileSystem::PathExists(dest_path)) //if file doesnt exist
 		{
 			if (!FileSystem::WriteBinaryFile(dest_path, data.data(), data.size())) {
-				DisplayErrorMessage("Could not write file to extract directory. (Permission Error?)", dest_path);
+				DisplayErrorMessage("Could not write file to extract directory. (Check space/permissions?)", dest_path);
 				return false;
 			}
 		}
@@ -738,12 +739,12 @@ bool SetupWizardDialog::extractFileFromISO(IsoReader& isor, const std::string fi
 			if (askOverwrite(std::string(dest_path), overwrite_set, overwrite)) //if user said yes to overwrite
 			{
 				if (!FileSystem::DeletePath(dest_path)) {
-					DisplayErrorMessage("Could not overwrite existing file in extract directory. (Permission Error?)", dest_path);
+					DisplayErrorMessage("Could not overwrite existing file in extract directory. (Check permissions?)", dest_path);
 					return false;
 				}
 				if (!FileSystem::WriteBinaryFile(dest_path, data.data(), data.size()))
 				{
-					DisplayErrorMessage("Could not write file to extract directory. (Permission Error?)", dest_path);
+					DisplayErrorMessage("Could not write file to extract directory. (Check space/permissions?)", dest_path);
 					return false;
 				}
 			}
@@ -753,12 +754,12 @@ bool SetupWizardDialog::extractFileFromISO(IsoReader& isor, const std::string fi
 		{
 			if (!FileSystem::DeletePath(dest_path))
 			{
-				DisplayErrorMessage("Could not overwrite existing file in extract directory. (Permission Error?)", dest_path);
+				DisplayErrorMessage("Could not overwrite existing file in extract directory. (Check permissions?)", dest_path);
 				return false;
 			}
 			if (!FileSystem::WriteBinaryFile(dest_path, data.data(), data.size()))
 			{
-				DisplayErrorMessage("Could not write file to extract directory. (Permission Error?)", dest_path);
+				DisplayErrorMessage("Could not write file to extract directory. (Check space/permissions?)", dest_path);
 				return false;
 			}
 		}
@@ -785,7 +786,7 @@ void SetupWizardDialog::DisplayErrorMessage(std::string error, std::string path)
 //Because It was going to validate each file's via a hash, but I can't be bothered to add the hash calculation yet
 void SetupWizardDialog::extractPTR2Files()
 {
-	//DisplayErrorMessage("Could not write file to extract directory. (Permission Error?)", "C:\\Users\\Owner\\Owner\\yeah\\true\\real moding game\\moderfile.int");			
+	//DisplayErrorMessage("Could not write file to extract directory. (Check space/permissions?)", "C:\\Users\\Owner\\Owner\\yeah\\true\\real moding game\\moderfile.int");			
 	bool overwrite_set = false;
 	bool overwrite = false;
 	std::string iso_path = m_ui.isoDirectory->text().toStdString();
@@ -803,7 +804,7 @@ void SetupWizardDialog::extractPTR2Files()
 	CDVDsys_ChangeSource(CDVD_SourceType::Iso);
 
 	if (!DoCDVDopen()){
-		DisplayErrorMessage("Could not open input ISO file. (Permission Error?)", iso_path);
+		DisplayErrorMessage("Could not open input ISO file. (Check permissions?)", iso_path);
 		return;
 	}
 	IsoReader isor;
@@ -816,7 +817,7 @@ void SetupWizardDialog::extractPTR2Files()
 	const std::string ptr2filedb_filename = Path::Combine(EmuFolders::Resources, "iso_extract_db.txt");
 	auto fp = FileSystem::OpenManagedCFile(ptr2filedb_filename.c_str(), "rb+");
 	if (!fp) {
-		DisplayErrorMessage("Could not open iso extract database resource. (Permission Error?)", ptr2filedb_filename);
+		DisplayErrorMessage("Could not open iso extract database resource. (Check permissions?)", ptr2filedb_filename);
 		return;
 	}
 	auto stream = fp.get();
@@ -826,14 +827,14 @@ void SetupWizardDialog::extractPTR2Files()
 	{
 		file_entry entry;
 		if (!ReadOneFile(stream, entry)) {
-			DisplayErrorMessage("Could not read iso extract database resource. (Permission Error?)", ptr2filedb_filename);
+			DisplayErrorMessage("Could not read iso extract database resource. (Check permissions?)", ptr2filedb_filename);
 			return;
 		}
 		
 		std::string dest_path = Path::Combine(extract_path, entry.path);
 		std::string dest_dir = std::string(Path::GetDirectory(dest_path));
 		if (!FileSystem::EnsureDirectoryExists(dest_dir.c_str(), true)) {
-			DisplayErrorMessage("Could not create folder in extract directory. (Permission Error?)", dest_dir);
+			DisplayErrorMessage("Could not create folder in extract directory. (Check permissions?)", dest_dir);
 			return;
 		}
 

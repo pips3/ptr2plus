@@ -654,7 +654,6 @@ void SetupWizardDialog::listRefreshed(const QVector<BIOSInfo>& items)
 
 void SetupWizardDialog::setupPTR2Page()
 {
-	FileSystem::
 	SettingWidgetBinder::BindWidgetToFolderSetting(nullptr, m_ui.ptr2Directory, m_ui.browsePtr2Directory,
 		nullptr, m_ui.ptr2ResetDirectory, "Folders", "PTR2",
 		Path::Combine(EmuFolders::DataRoot, "ptr2"));

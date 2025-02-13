@@ -385,13 +385,13 @@ mod_file GetP2MFile(FILE* stream, p2m_header& hd, int index)
 	file.path = path;
 
 	//read type
-	std::fseek(stream, hd.type_offset + (2 * index), SEEK_SET);
+	std::fseek(stream, hd.type_offset + (sizeof(u16) * index), SEEK_SET);
 	ModType type;
 	std::fread(&type, sizeof(u16), 1, stream);
 	file.type = type;
 
 	//read size/pos
-	std::fseek(stream, hd.size_offset + (2 * index), SEEK_SET);
+	std::fseek(stream, hd.size_offset + ((sizeof(u32) * 2) * index), SEEK_SET);
 	u32 size;
 	u32 pos;
 	std::fread(&size, sizeof(u32), 1, stream);

@@ -50,7 +50,7 @@ void PrHookManager::CdctrlMemIntgDecode()
 	Console.WriteLn(Color_Green, "[PTR2] CdctrlMemIntgDecode hook called");
 #endif
 
-	int memOff = 0;
+	int cur_address_pp = 0;
 
 	// Find FILE_STR on sp and get int name pointer
 
@@ -122,15 +122,16 @@ void PrHookManager::CdctrlMemIntgDecode()
 	int write_pp = cpuRegs.GPR.n.a1.UD[0] + 0x20000000;
 
 #if defined(PCSX2_DEVBUILD)
-	Console.WriteLn("Writing " + folder + " to: " + fmt::format("{:#08x}", (write_pp - 0x20000000) + memOff));
+	Console.WriteLn("Writing " + folder + " to: " + fmt::format("{:#08x}", (write_pp - 0x20000000) + cur_address_pp));
 #endif
 	int strings_off = (8 * packFile.fnum);
 
 	for (int i = 0; i < packFile.fnum; i++)
 	{
 		//get file size and name pointer
-		int size = 0;
-		memcpy(&size, name_chunk + 4 + (8 * i), 4);
+		//mods can have different file sizes so we don't actually use this value... commented out for now
+		/* int file_size = 0;
+		memcpy(&file_size, name_chunk + 4 + (8 * i), 4); */
 
 		int name_pp = 0;
 		memcpy(&name_pp, name_chunk + (8 * i), 4);
@@ -147,7 +148,7 @@ void PrHookManager::CdctrlMemIntgDecode()
 		std::string name = buf;
 
 #if defined(PCSX2_DEVBUILD)
-		Console.WriteLn("Writing " + name + " to: " + fmt::format("{:#08x}", (write_pp - 0x20000000) + memOff));
+		Console.WriteLn("Writing " + name + " to: " + fmt::format("{:#08x}", (write_pp - 0x20000000) + cur_address_pp));
 #endif
 
 		//get int file name
@@ -181,28 +182,34 @@ void PrHookManager::CdctrlMemIntgDecode()
 
 		// Write bytes from file to memory
 		const auto fp = FileSystem::OpenManagedCFile(final_path.c_str(), "rb");
+		int fp_file_size = FileSystem::GetPathFileSize(final_path.c_str());
 
 		const int buf_size = 4096;
 		u8 buf3[buf_size];
-		int total_copied = buf_size;
+		int total_copied = 0;
 
-		while (size > total_copied)
+		while (fp_file_size > total_copied + buf_size)
 		{
 			std::fread(&buf3, sizeof(buf3[0]), buf_size, fp.get());
-			vtlb_memSafeWriteBytes(write_pp + memOff, &buf3, buf_size);
+			vtlb_memSafeWriteBytes(write_pp + cur_address_pp, &buf3, buf_size);
 			total_copied += buf_size;
-			memOff += buf_size;
+			cur_address_pp += buf_size;
 		}
-		std::fread(&buf3, size + buf_size - total_copied, 1, fp.get());
-		vtlb_memSafeWriteBytes(write_pp + memOff, &buf3, size + buf_size - total_copied);
-		memOff += size + buf_size - total_copied;
 
-		// Make sure the offset is 0x10 aligned
-		while (memOff % 0x10 != 0)
+		std::fread(&buf3, fp_file_size - total_copied, 1, fp.get());
+		vtlb_memSafeWriteBytes(write_pp + cur_address_pp, &buf3, fp_file_size - total_copied);
+		cur_address_pp += fp_file_size - total_copied;
+
+		// Make sure the offset is 0x10 aligned, this is how the game wants it
+		while (cur_address_pp % 0x10 != 0)
 		{
-			memWrite8(write_pp + memOff, 0);
-			memOff++;
+			memWrite8(write_pp + cur_address_pp, 0);
+			cur_address_pp++;
 		}
+
+		// write current address pointer to header (so game knows where the next file is
+		// this cant be kept same as original because mod files may have different sizes
+		vtlb_memSafeWriteBytes(cpuRegs.GPR.n.s4.UD[0] + 0x20 + sizeof(u32) * (i + 1), &cur_address_pp, 0x04);
 	}
 }
 

@@ -22,7 +22,8 @@
 #include "pcsx2/Host.h"
 
 //audio
-#include "pcsx2/SPU2/Global.h"
+//#include "pcsx2/SPU2/Global.h"
+#include "pcsx2/Host/AudioStream.h"
 #include "pcsx2/SPU2/spu2.h"
 #include "pcsx2/VMManager.h"
 
@@ -32,7 +33,7 @@
 //#include "AudioSettingsWidget.h"
 #include "QtUtils.h"
 #include "SettingWidgetBinder.h"
-#include "SettingsDialog.h"
+//#include "SettingsDialog.h"
 
 static constexpr s32 DEFAULT_TARGET_LATENCY = 60;
 static constexpr s32 DEFAULT_OUTPUT_LATENCY = 20;
@@ -40,9 +41,7 @@ static constexpr s32 DEFAULT_VOLUME = 100;
 static constexpr u32 DEFAULT_FRAME_LATENCY = 2;
 static constexpr s32 DEFAULT_SYNCHRONIZATION_MODE = 0;
 
-
-
-QuickSettingsWidget::QuickSettingsWidget(SettingsDialog* dialog, QWidget* parent)
+QuickSettingsWidget::QuickSettingsWidget(SettingsWindow* dialog, QWidget* parent)
 	: QWidget(parent)
 	, m_dialog(dialog)
 {
@@ -79,27 +78,29 @@ QuickSettingsWidget::QuickSettingsWidget(SettingsDialog* dialog, QWidget* parent
 	//vsync
 	SettingWidgetBinder::BindWidgetToIntSetting(sif, m_ui.vsync, "EmuCore/GS", "VsyncEnable", 0);
 
-	//volume
-	m_ui.volume->setValue(m_dialog->getEffectiveIntValue("SPU2/Mixing", "FinalVolume", DEFAULT_VOLUME));
-	connect(m_ui.volume, &QSlider::valueChanged, this, &QuickSettingsWidget::volumeChanged);
-	QuickSettingsWidget::updateVolumeLabel();
-
 	//optimal frame pacing
 	connect(m_ui.optimalFramePacing, &QCheckBox::stateChanged, this, &QuickSettingsWidget::onOptimalFramePacingChanged);
 	m_ui.optimalFramePacing->setTristate(dialog->isPerGameSettings());
 
-	//target and output latency
-	QuickSettingsWidget::updateTargetLatencyRange();
-	SettingWidgetBinder::BindSliderToIntSetting(
-		//: Measuring unit that will appear after the number selected in its option. Adapt the space depending on your language's rules.
-		sif, m_ui.targetLatency, m_ui.targetLatencyLabel, tr(" ms"), "SPU2/Output", "Latency", DEFAULT_TARGET_LATENCY);
-	SettingWidgetBinder::BindSliderToIntSetting(
-		sif, m_ui.outputLatency, m_ui.outputLatencyLabel, tr(" ms"), "SPU2/Output", "OutputLatency", DEFAULT_OUTPUT_LATENCY);
-
+	//audio output buffer
+	SettingWidgetBinder::BindWidgetToIntSetting(sif, m_ui.bufferMS, "SPU2/Output", "BufferMS",
+		AudioStreamParameters::DEFAULT_BUFFER_MS);
+	//audio output latency
+	SettingWidgetBinder::BindWidgetToIntSetting(sif, m_ui.outputLatencyMS, "SPU2/Output", "OutputLatencyMS",
+		AudioStreamParameters::DEFAULT_OUTPUT_LATENCY_MS);
+	SettingWidgetBinder::BindWidgetToBoolSetting(sif, m_ui.outputLatencyMinimal, "SPU2/Output", "OutputLatencyMinimal", false);
 	//connect(m_ui.targetLatency, &QSlider::valueChanged, this, &QuickSettingsWidget::updateLatencyLabels);
 	//connect(m_ui.outputLatency, &QSlider::valueChanged, this, &QuickSettingsWidget::updateLatencyLabels);
 
-	QuickSettingsWidget::onMinimalOutputLatencyStateChanged();
+	connect(m_ui.bufferMS, &QSlider::valueChanged, this, &QuickSettingsWidget::updateLatencyLabel);
+	connect(m_ui.outputLatencyMS, &QSlider::valueChanged, this, &QuickSettingsWidget::updateLatencyLabel);
+	connect(m_ui.outputLatencyMinimal, &QCheckBox::checkStateChanged, this, &QuickSettingsWidget::onMinimalOutputLatencyChanged);
+	onMinimalOutputLatencyChanged();
+	updateLatencyLabel();
+
+	//volume
+	SettingWidgetBinder::BindWidgetAndLabelToIntSetting(sif, m_ui.volume, m_ui.volumeLabel, tr("%"), "SPU2/Output", "OutputVolume", 100);
+	connect(m_ui.resetVolume, &QToolButton::clicked, this, [this]() { resetVolume(false); });
 
 	dialog->registerWidgetHelp(m_ui.perfPreset, tr("Performance Preset"), tr("Custom"),
 		tr("Adjusts multiple settings based on the selected preset. Max Performance and Balanced presets enable "
@@ -122,66 +123,144 @@ QuickSettingsWidget::QuickSettingsWidget(SettingsDialog* dialog, QWidget* parent
 		tr("Enable this option to match PCSX2's refresh rate with your current monitor or screen. VSync is automatically disabled when "
 		   "it is not possible (eg. running at non-100% speed)."));
 
-	dialog->registerWidgetHelp(m_ui.volume, tr("Volume"), tr("100%"),
-		tr("Pre-applies a volume modifier to the game's audio output before forwarding it to your computer."));
-
 	dialog->registerWidgetHelp(m_ui.optimalFramePacing, tr("Optimal Frame Pacing"), tr("Unchecked"),
 		tr("Sets the VSync queue size to 0, making every frame be completed and presented by the GS before input is polled and the next frame begins. "
 		   "Using this setting can reduce input lag at the cost of measurably higher CPU and GPU requirements."));
 
-	dialog->registerWidgetHelp(m_ui.targetLatency, tr("Target Latency"), tr("60 ms"),
-		tr("Determines the buffer size which the time stretcher will try to keep filled. It effectively selects the average latency, as "
-		   "audio will be stretched/shrunk to keep the buffer size within check."));
+	dialog->registerWidgetHelp(
+		m_ui.bufferMS, tr("Buffer Size"), tr("%1 ms").arg(AudioStreamParameters::DEFAULT_BUFFER_MS),
+		tr("Determines the buffer size which the time stretcher will try to keep filled. It effectively selects the "
+		   "average latency, as audio will be stretched/shrunk to keep the buffer size within check."));
+	
+	dialog->registerWidgetHelp(
+		m_ui.outputLatencyMS, tr("Output Latency"), tr("%1 ms").arg(AudioStreamParameters::DEFAULT_OUTPUT_LATENCY_MS),
+		tr("Determines the latency from the buffer to the host audio output. This can be set lower than the target latency "
+		   "to reduce audio delay."));
 
-	dialog->registerWidgetHelp(m_ui.outputLatency, tr("Output Latency"), tr("20 ms"),
-		tr("Determines the latency from the buffer to the host audio output. This can be set lower than the target latency to reduce audio "
-		   "delay."));
+	dialog->registerWidgetHelp(m_ui.volume, tr("Output Volume"), "100%",
+		tr("Controls the volume of the audio played on the host."));
+
+	dialog->registerWidgetHelp(m_ui.resetVolume, tr("Reset Volume"), tr("N/A"),
+		m_dialog->isPerGameSettings() ? tr("Resets output volume back to the global/inherited setting.") :
+                                        tr("Resets output volume back to the default."));
 
 	//EmulationSettingsWidget::updateOptimalFramePacing();
 }
 
 QuickSettingsWidget::~QuickSettingsWidget() = default;
 
-void QuickSettingsWidget::volumeChanged(int value)
+void QuickSettingsWidget::updateLatencyLabel()
 {
-	// Nasty, but needed so we don't do a full settings apply and lag while dragging.
-	if (SettingsInterface* sif = m_dialog->getSettingsInterface())
-	{
-		if (!m_ui.volumeLabel->font().bold())
-		{
-			QFont bold_font(m_ui.volumeLabel->font());
-			bold_font.setBold(true);
-			m_ui.volumeLabel->setFont(bold_font);
-		}
+	const u32 expand_buffer_ms = AudioStream::GetMSForBufferSize(SPU2::SAMPLE_RATE, getEffectiveExpansionBlockSize());
+	const u32 config_buffer_ms = m_dialog->getEffectiveIntValue("SPU2/Output", "BufferMS", AudioStreamParameters::DEFAULT_BUFFER_MS);
+	const u32 config_output_latency_ms = m_dialog->getEffectiveIntValue("SPU2/Output", "OutputLatencyMS", AudioStreamParameters::DEFAULT_OUTPUT_LATENCY_MS);
+	const bool minimal_output = m_dialog->getEffectiveBoolValue("SPU2/Output", "OutputLatencyMinimal", false);
 
-		sif->SetIntValue("SPU2/Mixing", "FinalVolume", value);
-		sif->Save();
+	//: Preserve the %1 variable, adapt the latter ms (and/or any possible spaces in between) to your language's ruleset.
+	m_ui.outputLatencyLabel->setText(minimal_output ? tr("N/A") : tr("%1 ms").arg(config_output_latency_ms));
+	m_ui.bufferMSLabel->setText(tr("%1 ms").arg(config_buffer_ms));
+
+	const u32 output_latency_ms = minimal_output ? AudioStream::GetMSForBufferSize(SPU2::SAMPLE_RATE, m_output_device_latency) : config_output_latency_ms;
+	if (output_latency_ms > 0)
+	{
+		if (expand_buffer_ms > 0)
+		{
+			m_ui.bufferingLabel->setText(tr("Maximum Latency: %1 ms (%2 ms buffer + %3 ms expand + %4 ms output)")
+											 .arg(config_buffer_ms + expand_buffer_ms + output_latency_ms)
+											 .arg(config_buffer_ms)
+											 .arg(expand_buffer_ms)
+											 .arg(output_latency_ms));
+		}
+		else
+		{
+			m_ui.bufferingLabel->setText(tr("Maximum Latency: %1 ms (%2 ms buffer + %3 ms output)")
+											 .arg(config_buffer_ms + output_latency_ms)
+											 .arg(config_buffer_ms)
+											 .arg(output_latency_ms));
+		}
 	}
 	else
 	{
-		Host::SetBaseIntSettingValue("SPU2/Mixing", "FinalVolume", value);
-		Host::CommitBaseSettingChanges();
+		if (expand_buffer_ms > 0)
+		{
+			m_ui.bufferingLabel->setText(tr("Maximum Latency: %1 ms (%2 ms expand, minimum output latency unknown)")
+											 .arg(expand_buffer_ms + config_buffer_ms)
+											 .arg(expand_buffer_ms));
+		}
+		else
+		{
+			m_ui.bufferingLabel->setText(tr("Maximum Latency: %1 ms (minimum output latency unknown)").arg(config_buffer_ms));
+		}
 	}
+}
 
-	// Push through to emu thread since we're not applying.
-	if (QtHost::IsVMValid())
-	{
-		Host::RunOnCPUThread([value]() {
-			if (!VMManager::HasValidVM())
-				return;
+u32 QuickSettingsWidget::getEffectiveExpansionBlockSize() const
+{
+	const AudioExpansionMode expansion_mode = getEffectiveExpansionMode();
+	if (expansion_mode == AudioExpansionMode::Disabled)
+		return 0;
 
-			EmuConfig.SPU2.FinalVolume = value;
-			SPU2::SetOutputVolume(value);
-		});
-	}
+	const u32 config_block_size = m_dialog->getEffectiveIntValue("SPU2/Output", "ExpandBlockSize",
+		AudioStreamParameters::DEFAULT_EXPAND_BLOCK_SIZE);
+	return std::has_single_bit(config_block_size) ? config_block_size : std::bit_ceil(config_block_size);
+}
 
-	updateVolumeLabel();
+AudioExpansionMode QuickSettingsWidget::getEffectiveExpansionMode() const
+{
+	return AudioStream::ParseExpansionMode(
+		m_dialog->getEffectiveStringValue("SPU2/Output", "ExpansionMode",
+					AudioStream::GetExpansionModeName(AudioStreamParameters::DEFAULT_EXPANSION_MODE))
+			.c_str())
+		.value_or(AudioStreamParameters::DEFAULT_EXPANSION_MODE);
 }
 
 void QuickSettingsWidget::updateVolumeLabel()
 {
-	//: Variable value that indicates a percentage. Preserve the %1 variable, adapt the latter % (and/or any possible spaces) to your language's ruleset.
 	m_ui.volumeLabel->setText(tr("%1%").arg(m_ui.volume->value()));
+}
+
+void QuickSettingsWidget::onMinimalOutputLatencyChanged()
+{
+	const bool minimal = m_dialog->getEffectiveBoolValue("SPU2/Output", "OutputLatencyMinimal", false);
+	m_ui.outputLatencyMS->setEnabled(!minimal);
+	updateLatencyLabel();
+}
+
+void QuickSettingsWidget::onOutputVolumeChanged(int new_value)
+{
+	// only called for base settings
+	pxAssert(!m_dialog->isPerGameSettings());
+	Host::SetBaseIntSettingValue("SPU2/Output", "OutputVolume", new_value);
+	Host::CommitBaseSettingChanges();
+	g_emu_thread->setAudioOutputVolume(new_value, EmuConfig.SPU2.FastForwardVolume);
+
+	updateVolumeLabel();
+}
+
+void QuickSettingsWidget::resetVolume(bool fast_forward)
+{
+	const char* key = "OutputVolume";
+	QSlider* const slider = m_ui.volume;
+	QLabel* const label =  m_ui.volumeLabel;
+
+	if (m_dialog->isPerGameSettings())
+	{
+		m_dialog->removeSettingValue("SPU2/Output", key);
+
+		const int value = m_dialog->getEffectiveIntValue("SPU2/Output", key, 100);
+		QSignalBlocker sb(slider);
+		slider->setValue(value);
+		label->setText(QStringLiteral("%1%2").arg(value).arg(tr("%")));
+
+		// remove bold font if it was previously overridden
+		QFont font(label->font());
+		font.setBold(false);
+		label->setFont(font);
+	}
+	else
+	{
+		slider->setValue(100);
+	}
 }
 
 void QuickSettingsWidget::onOptimalFramePacingChanged()
@@ -209,23 +288,6 @@ void QuickSettingsWidget::onOptimalFramePacingChanged()
 	m_dialog->setIntSettingValue("EmuCore/GS", "VsyncQueueSize", value);
 
 }
-
-void QuickSettingsWidget::updateTargetLatencyRange()
-{
-	const Pcsx2Config::SPU2Options::SynchronizationMode sync_mode = static_cast<Pcsx2Config::SPU2Options::SynchronizationMode>(
-		m_dialog->getIntValue("SPU2/Output", "SynchMode", DEFAULT_SYNCHRONIZATION_MODE).value_or(DEFAULT_SYNCHRONIZATION_MODE));
-
-	m_ui.targetLatency->setMinimum((sync_mode == Pcsx2Config::SPU2Options::SynchronizationMode::TimeStretch) ?
-									   Pcsx2Config::SPU2Options::MIN_LATENCY_TIMESTRETCH :
-									   Pcsx2Config::SPU2Options::MIN_LATENCY);
-	m_ui.targetLatency->setMaximum(Pcsx2Config::SPU2Options::MAX_LATENCY);
-}
-
-void QuickSettingsWidget::onMinimalOutputLatencyStateChanged()
-{
-	m_ui.outputLatency->setEnabled(!m_dialog->getEffectiveBoolValue("SPU2/Output", "OutputLatencyMinimal", false));
-}
-
 
 void QuickSettingsWidget::presetChanged()
 {
@@ -307,4 +369,3 @@ void QuickSettingsWidget::presetChanged()
 	}
 
 }
-

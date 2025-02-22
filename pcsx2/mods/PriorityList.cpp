@@ -3,6 +3,7 @@
 #include <common/FileSystem.h>
 #include <mods/PriorityList.h>
 #include <common/StringUtil.h>
+#include <common/Console.h>
 
 static std::string PriorityList::GetFilename()
 {

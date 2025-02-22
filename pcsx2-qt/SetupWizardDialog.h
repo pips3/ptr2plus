@@ -41,7 +41,7 @@ private Q_SLOTS:
 	void extractPTR2Files();
 
 	//void onDirectoryListContextMenuRequested(const QPoint& point);
-	void onDirectoryListSelectionChanged();
+	//void onDirectoryListSelectionChanged();
 	//void onAddSearchDirectoryButtonClicked();
 	//void onRemoveSearchDirectoryButtonClicked();
 	//void refreshDirectoryList();

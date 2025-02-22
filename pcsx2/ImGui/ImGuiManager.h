@@ -17,6 +17,8 @@ namespace ImGuiManager
 {
 	extern bool s_need_layout_update;
 
+	extern void UpdateScale();
+
 	/// Sets the path to the font to use. Empty string means to use the default.
 	void SetFontPathAndRange(std::string path, std::vector<u16> range);
 

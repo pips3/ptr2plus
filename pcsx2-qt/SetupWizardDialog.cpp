@@ -12,7 +12,7 @@
 
 #include <QtWidgets/QMessageBox>
 #include <common/FileSystem.h>
-
+#include "common/Error.h"
 //ptr2plus
 #include "CDVD/CDVD.h"
 #include <common/StringUtil.h>
@@ -763,8 +763,8 @@ void SetupWizardDialog::extractPTR2Files()
 	CDVDsys_ClearFiles();
 	CDVDsys_SetFile(CDVD_SourceType::Iso, iso_path);
 	CDVDsys_ChangeSource(CDVD_SourceType::Iso);
-
-	if (!DoCDVDopen()){
+	Error error;
+	if (!DoCDVDopen(&error)){
 		DisplayErrorMessage("Could not open input ISO file. (Check permissions?)", iso_path);
 		return;
 	}

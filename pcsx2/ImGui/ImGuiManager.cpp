@@ -49,7 +49,7 @@ namespace ImGuiManager
 
 	bool s_need_layout_update = false;
 
-	static void UpdateScale();
+	//static void UpdateScale();
 	static void SetStyle();
 	static void SetKeyMap();
 	static bool LoadFontData();

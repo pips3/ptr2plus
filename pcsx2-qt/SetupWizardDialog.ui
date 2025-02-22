@@ -416,7 +416,7 @@
           <widget class="QLineEdit" name="isoDirectory"/>
          </item>
          <item>
-          <widget class="QPushButton" name="browseIsoDirectory">
+          <widget class="QToolButton" name="browseIsoDirectory">
            <property name="text">
             <string>Browse...</string>
            </property>

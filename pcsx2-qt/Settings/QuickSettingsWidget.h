@@ -19,29 +19,31 @@
 
 #include "ui_QuickSettingsWidget.h"
 
-class SettingsDialog;
+class SettingsWindow;
+enum class AudioExpansionMode : u8;
 
 class QuickSettingsWidget : public QWidget
 {
 	Q_OBJECT
 
 public:
-	QuickSettingsWidget(SettingsDialog* dialog, QWidget* parent);
+	QuickSettingsWidget(SettingsWindow* dialog, QWidget* parent);
 	~QuickSettingsWidget();
 
 private Q_SLOTS:
-	void volumeChanged(int value);
+	void updateLatencyLabel();
 	void updateVolumeLabel();
-	void onMinimalOutputLatencyStateChanged();
-	void updateTargetLatencyRange();
+	void onMinimalOutputLatencyChanged();
+	void onOutputVolumeChanged(int new_value);
 	void onOptimalFramePacingChanged();
 	void presetChanged();
-	//void updateOptimalFramePacing();
 
 private:
 
-	SettingsDialog* m_dialog;
-
+	SettingsWindow* m_dialog;
+	AudioExpansionMode getEffectiveExpansionMode() const;
+	u32 getEffectiveExpansionBlockSize() const;
+	void resetVolume(bool fast_forward);
 	Ui::QuickSettingsWidget m_ui;
-	//u32 m_output_device_latency = 0;
+	u32 m_output_device_latency = 0;
 };

@@ -213,7 +213,6 @@ protected:
 	bool handleFreeze(); //ptr2plus
 	bool psxRcntFreeze();
 	bool deci2Freeze();
-	bool handleFreeze();
 
 	// Save or load PCSX2's global frame counter (g_FrameCount) along with each savestate
 	//

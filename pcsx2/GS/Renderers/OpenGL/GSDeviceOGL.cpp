@@ -1,19 +1,5 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2021 PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
-
-#include "PrecompiledHeader.h"
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/Renderers/OpenGL/GLContext.h"
 #include "GS/Renderers/OpenGL/GSDeviceOGL.h"
@@ -24,6 +10,8 @@
 #include "GS/GSUtil.h"
 #include "Host.h"
 
+#include "common/Console.h"
+#include "common/Error.h"
 #include "common/StringUtil.h"
 
 #include "imgui.h"
@@ -44,17 +32,17 @@ static constexpr u32 TEXTURE_UPLOAD_BUFFER_SIZE = 128 * 1024 * 1024;
 
 namespace ReplaceGL
 {
-	static void APIENTRY ScissorIndexed(GLuint index, GLint left, GLint bottom, GLsizei width, GLsizei height)
+	static void GLAPIENTRY ScissorIndexed(GLuint index, GLint left, GLint bottom, GLsizei width, GLsizei height)
 	{
 		glScissor(left, bottom, width, height);
 	}
 
-	static void APIENTRY ViewportIndexedf(GLuint index, GLfloat x, GLfloat y, GLfloat w, GLfloat h)
+	static void GLAPIENTRY ViewportIndexedf(GLuint index, GLfloat x, GLfloat y, GLfloat w, GLfloat h)
 	{
 		glViewport(GLint(x), GLint(y), GLsizei(w), GLsizei(h));
 	}
 
-	static void APIENTRY TextureBarrier()
+	static void GLAPIENTRY TextureBarrier()
 	{
 	}
 
@@ -63,59 +51,59 @@ namespace ReplaceGL
 namespace Emulate_DSA
 {
 	// Texture entry point
-	static void APIENTRY BindTextureUnit(GLuint unit, GLuint texture)
+	static void GLAPIENTRY BindTextureUnit(GLuint unit, GLuint texture)
 	{
 		glActiveTexture(GL_TEXTURE0 + unit);
 		glBindTexture(GL_TEXTURE_2D, texture);
 	}
 
-	static void APIENTRY CreateTexture(GLenum target, GLsizei n, GLuint* textures)
+	static void GLAPIENTRY CreateTexture(GLenum target, GLsizei n, GLuint* textures)
 	{
 		glGenTextures(1, textures);
 	}
 
-	static void APIENTRY TextureStorage(
+	static void GLAPIENTRY TextureStorage(
 		GLuint texture, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height)
 	{
 		BindTextureUnit(7, texture);
 		glTexStorage2D(GL_TEXTURE_2D, levels, internalformat, width, height);
 	}
 
-	static void APIENTRY TextureSubImage(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLsizei width,
+	static void GLAPIENTRY TextureSubImage(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLsizei width,
 		GLsizei height, GLenum format, GLenum type, const void* pixels)
 	{
 		BindTextureUnit(7, texture);
 		glTexSubImage2D(GL_TEXTURE_2D, level, xoffset, yoffset, width, height, format, type, pixels);
 	}
 
-	static void APIENTRY CompressedTextureSubImage(GLuint texture, GLint level, GLint xoffset, GLint yoffset,
+	static void GLAPIENTRY CompressedTextureSubImage(GLuint texture, GLint level, GLint xoffset, GLint yoffset,
 		GLsizei width, GLsizei height, GLenum format, GLsizei imageSize, const void* data)
 	{
 		BindTextureUnit(7, texture);
 		glCompressedTexSubImage2D(GL_TEXTURE_2D, level, xoffset, yoffset, width, height, format, imageSize, data);
 	}
 
-	static void APIENTRY GetTexureImage(
+	static void GLAPIENTRY GetTexureImage(
 		GLuint texture, GLint level, GLenum format, GLenum type, GLsizei bufSize, void* pixels)
 	{
 		BindTextureUnit(7, texture);
 		glGetTexImage(GL_TEXTURE_2D, level, format, type, pixels);
 	}
 
-	static void APIENTRY TextureParameteri(GLuint texture, GLenum pname, GLint param)
+	static void GLAPIENTRY TextureParameteri(GLuint texture, GLenum pname, GLint param)
 	{
 		BindTextureUnit(7, texture);
 		glTexParameteri(GL_TEXTURE_2D, pname, param);
 	}
 
-	static void APIENTRY GenerateTextureMipmap(GLuint texture)
+	static void GLAPIENTRY GenerateTextureMipmap(GLuint texture)
 	{
 		BindTextureUnit(7, texture);
 		glGenerateMipmap(GL_TEXTURE_2D);
 	}
 
 	// Misc entry point
-	static void APIENTRY CreateSamplers(GLsizei n, GLuint* samplers)
+	static void GLAPIENTRY CreateSamplers(GLsizei n, GLuint* samplers)
 	{
 		glGenSamplers(n, samplers);
 	}
@@ -158,48 +146,46 @@ bool GSDeviceOGL::HasSurface() const
 	return m_window_info.type != WindowInfo::Type::Surfaceless;
 }
 
-void GSDeviceOGL::SetVSync(VsyncMode mode)
+void GSDeviceOGL::SetVSyncMode(GSVSyncMode mode, bool allow_present_throttle)
 {
-	if (m_vsync_mode == mode || m_gl_context->GetWindowInfo().type == WindowInfo::Type::Surfaceless)
+	m_allow_present_throttle = allow_present_throttle;
+
+	if (m_vsync_mode == mode)
 		return;
 
-	// Window framebuffer has to be bound to call SetSwapInterval.
-	GLint current_fbo = 0;
-	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &current_fbo);
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-
-	if (mode != VsyncMode::Adaptive || !m_gl_context->SetSwapInterval(-1))
-		m_gl_context->SetSwapInterval(static_cast<s32>(mode != VsyncMode::Off));
-
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, current_fbo);
 	m_vsync_mode = mode;
+	SetSwapInterval();
 }
 
-bool GSDeviceOGL::Create()
+bool GSDeviceOGL::Create(GSVSyncMode vsync_mode, bool allow_present_throttle)
 {
-	if (!GSDevice::Create())
+	if (!GSDevice::Create(vsync_mode, allow_present_throttle))
 		return false;
 
 	// GL is a pain and needs the window super early to create the context.
 	if (!AcquireWindow(true))
 		return false;
 
-	m_gl_context = GLContext::Create(m_window_info);
+	Error error;
+	m_gl_context = GLContext::Create(m_window_info, &error);
 	if (!m_gl_context)
 	{
-		Console.Error("Failed to create any GL context");
+		Console.ErrorFmt("GL: Failed to create any context: {}", error.GetDescription());
 		return false;
 	}
 
 	if (!m_gl_context->MakeCurrent())
 	{
-		Console.Error("Failed to make GL context current");
+		Console.Error("GL: Failed to make context current");
 		return false;
 	}
 
 	bool buggy_pbo;
 	if (!CheckFeatures(buggy_pbo))
 		return false;
+
+	// Store adapter name currently in use
+	m_name = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
 
 	SetSwapInterval();
 
@@ -210,11 +196,11 @@ bool GSDeviceOGL::Create()
 	if (!GSConfig.DisableShaderCache)
 	{
 		if (!m_shader_cache.Open())
-			Console.Warning("Shader cache failed to open.");
+			Console.Warning("GL: Shader cache failed to open.");
 	}
 	else
 	{
-		Console.WriteLn("Not using shader cache.");
+		Console.WriteLn("GL: Not using shader cache.");
 	}
 
 	// because of fbo bindings below...
@@ -339,7 +325,7 @@ bool GSDeviceOGL::Create()
 	}
 
 	// these all share the same vertex shader
-	const auto convert_glsl = Host::ReadResourceFileToString("shaders/opengl/convert.glsl");
+	const std::optional<std::string> convert_glsl = ReadShaderSource("shaders/opengl/convert.glsl");
 	if (!convert_glsl.has_value())
 	{
 		Host::ReportErrorAsync("GS", "Failed to read shaders/opengl/convert.glsl.");
@@ -379,6 +365,12 @@ bool GSDeviceOGL::Create()
 				m_convert.ps[i].RegisterUniform("offset");
 				m_convert.ps[i].RegisterUniform("scale");
 			}
+			else if (static_cast<ShaderConvert>(i) == ShaderConvert::DOWNSAMPLE_COPY)
+			{
+				m_convert.ps[i].RegisterUniform("ClampMin");
+				m_convert.ps[i].RegisterUniform("DownsampleFactor");
+				m_convert.ps[i].RegisterUniform("Weight");
+			}
 		}
 
 		const PSSamplerSelector point;
@@ -401,7 +393,7 @@ bool GSDeviceOGL::Create()
 		GL_PUSH("GSDeviceOGL::Present");
 
 		// these all share the same vertex shader
-		const auto shader = Host::ReadResourceFileToString("shaders/opengl/present.glsl");
+		const std::optional<std::string> shader = ReadShaderSource("shaders/opengl/present.glsl");
 		if (!shader.has_value())
 		{
 			Host::ReportErrorAsync("GS", "Failed to read shaders/opengl/present.glsl.");
@@ -437,7 +429,7 @@ bool GSDeviceOGL::Create()
 	{
 		GL_PUSH("GSDeviceOGL::Merge");
 
-		const auto shader = Host::ReadResourceFileToString("shaders/opengl/merge.glsl");
+		const std::optional<std::string> shader = ReadShaderSource("shaders/opengl/merge.glsl");
 		if (!shader.has_value())
 		{
 			Host::ReportErrorAsync("GS", "Failed to read shaders/opengl/merge.glsl.");
@@ -460,7 +452,7 @@ bool GSDeviceOGL::Create()
 	{
 		GL_PUSH("GSDeviceOGL::Interlace");
 
-		const auto shader = Host::ReadResourceFileToString("shaders/opengl/interlace.glsl");
+		const std::optional<std::string> shader = ReadShaderSource("shaders/opengl/interlace.glsl");
 		if (!shader.has_value())
 		{
 			Host::ReportErrorAsync("GS", "Failed to read shaders/opengl/interlace.glsl.");
@@ -530,8 +522,7 @@ bool GSDeviceOGL::Create()
 	// This extension allow FS depth to range from -1 to 1. So
 	// gl_position.z could range from [0, 1]
 	// Change depth convention
-	if (m_features.clip_control)
-		glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+	glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
 
 	// ****************************************************************
 	// HW renderer shader
@@ -553,7 +544,7 @@ bool GSDeviceOGL::Create()
 		}
 		else
 		{
-			Console.Error("Failed to create texture upload buffer. Using slow path.");
+			Console.Error("GL: Failed to create texture upload buffer. Using slow path.");
 		}
 	}
 
@@ -588,8 +579,8 @@ bool GSDeviceOGL::CreateTextureFX()
 {
 	GL_PUSH("GSDeviceOGL::CreateTextureFX");
 
-	auto vertex_shader = Host::ReadResourceFileToString("shaders/opengl/tfx_vgs.glsl");
-	auto fragment_shader = Host::ReadResourceFileToString("shaders/opengl/tfx_fs.glsl");
+	std::optional<std::string> vertex_shader = ReadShaderSource("shaders/opengl/tfx_vgs.glsl");
+	std::optional<std::string> fragment_shader = ReadShaderSource("shaders/opengl/tfx_fs.glsl");
 	if (!vertex_shader.has_value() || !fragment_shader.has_value())
 	{
 		Host::ReportErrorAsync("GS", "Failed to read shaders/opengl/tfx_{vgs,fs}.glsl.");
@@ -618,7 +609,7 @@ bool GSDeviceOGL::CreateTextureFX()
 
 bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 {
-	bool vendor_id_amd = false;
+	//bool vendor_id_amd = false;
 	bool vendor_id_nvidia = false;
 	//bool vendor_id_intel = false;
 
@@ -626,17 +617,17 @@ bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 	if (std::strstr(vendor, "Advanced Micro Devices") || std::strstr(vendor, "ATI Technologies Inc.") ||
 		std::strstr(vendor, "ATI"))
 	{
-		Console.WriteLn(Color_StrongRed, "OGL: AMD GPU detected.");
-		vendor_id_amd = true;
+		Console.WriteLn(Color_StrongRed, "GL: AMD GPU detected.");
+		//vendor_id_amd = true;
 	}
 	else if (std::strstr(vendor, "NVIDIA Corporation"))
 	{
-		Console.WriteLn(Color_StrongGreen, "OGL: NVIDIA GPU detected.");
+		Console.WriteLn(Color_StrongGreen, "GL: NVIDIA GPU detected.");
 		vendor_id_nvidia = true;
 	}
 	else if (std::strstr(vendor, "Intel"))
 	{
-		Console.WriteLn(Color_StrongBlue, "OGL: Intel GPU detected.");
+		Console.WriteLn(Color_StrongBlue, "GL: Intel GPU detected.");
 		//vendor_id_intel = true;
 	}
 
@@ -647,7 +638,7 @@ bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 	if (!GLAD_GL_VERSION_3_3)
 	{
 		Host::ReportErrorAsync(
-			"GS", fmt::format("OpenGL renderer is not supported. Only OpenGL {}.{}\n was found", major_gl, minor_gl));
+			"GS", fmt::format(TRANSLATE_FS("GSDeviceOGL", "OpenGL renderer is not supported. Only OpenGL {}.{}\n was found"), major_gl, minor_gl));
 		return false;
 	}
 
@@ -669,7 +660,7 @@ bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 			extensions.append(ext);
 		}
 	}
-	Console.WriteLn(std::move(extensions));
+	DevCon.WriteLn(std::move(extensions));
 
 	if (!GLAD_GL_ARB_shading_language_420pack)
 	{
@@ -682,6 +673,12 @@ bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 	{
 		Host::ReportFormattedErrorAsync(
 			"GS", "GL_ARB_copy_image is not supported, this is required for the OpenGL renderer.");
+		return false;
+	}
+	if (!GLAD_GL_VERSION_4_5 && !GLAD_GL_ARB_clip_control)
+	{
+		Host::ReportFormattedErrorAsync(
+			"GS", "GL_ARB_clip_control is not supported, this is required for the OpenGL renderer.");
 		return false;
 	}
 
@@ -709,16 +706,16 @@ bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 	// using the normal texture update routines and letting the driver take care of it.
 	buggy_pbo = !GLAD_GL_VERSION_4_4 && !GLAD_GL_ARB_buffer_storage && !GLAD_GL_EXT_buffer_storage;
 	if (buggy_pbo)
-		Console.Warning("Not using PBOs for texture uploads because buffer_storage is unavailable.");
+		Console.Warning("GL: Not using PBOs for texture uploads because buffer_storage is unavailable.");
 
 	// Give the user the option to disable PBO usage for downloads.
 	// Most drivers seem to be faster with PBO.
 	m_disable_download_pbo = Host::GetBoolSettingValue("EmuCore/GS", "DisableGLDownloadPBO", false);
 	if (m_disable_download_pbo)
-		Console.Warning("Not using PBOs for texture downloads, this may reduce performance.");
+		Console.Warning("GL: Not using PBOs for texture downloads, this may reduce performance.");
 
 	// optional features based on context
-	m_features.broken_point_sampler = vendor_id_amd;
+	m_features.broken_point_sampler = false;
 	m_features.primitive_id = true;
 
 	m_features.framebuffer_fetch = GLAD_GL_EXT_shader_framebuffer_fetch;
@@ -746,11 +743,6 @@ bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 	m_features.bptc_textures =
 		GLAD_GL_VERSION_4_2 || GLAD_GL_ARB_texture_compression_bptc || GLAD_GL_EXT_texture_compression_bptc;
 	m_features.prefer_new_textures = false;
-	m_features.dual_source_blend = !GSConfig.DisableDualSourceBlend;
-	m_features.clip_control = GLAD_GL_ARB_clip_control;
-	if (!m_features.clip_control)
-		Host::AddOSDMessage(
-			"GL_ARB_clip_control is not supported, this will cause rendering issues.", Host::OSD_ERROR_DURATION);
 	m_features.stencil_buffer = true;
 	m_features.test_and_sample_depth = m_features.texture_barrier;
 
@@ -759,7 +751,7 @@ bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 	const bool buggy_vs_expand =
 		vendor_id_nvidia && (!GLAD_GL_ARB_bindless_texture && !GLAD_GL_NV_bindless_texture);
 	if (buggy_vs_expand)
-		Console.Warning("Disabling vertex shader expand due to broken NVIDIA driver.");
+		Console.Warning("GL: Disabling vertex shader expand due to broken NVIDIA driver.");
 
 	if (GLAD_GL_ARB_shader_storage_buffer_object)
 	{
@@ -770,7 +762,7 @@ bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 								GLAD_GL_ARB_gpu_shader5);
 	}
 	if (!m_features.vs_expand)
-		Console.Warning("Vertex expansion is not supported. This will reduce performance.");
+		Console.Warning("GL: Vertex expansion is not supported. This will reduce performance.");
 
 	GLint point_range[2] = {};
 	glGetIntegerv(GL_ALIASED_POINT_SIZE_RANGE, point_range);
@@ -778,7 +770,11 @@ bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 		(point_range[0] <= GSConfig.UpscaleMultiplier && point_range[1] >= GSConfig.UpscaleMultiplier);
 	m_features.line_expand = false;
 
-	Console.WriteLn("Using %s for point expansion, %s for line expansion and %s for sprite expansion.",
+	GLint max_texture_size = 1024;
+	glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_texture_size);
+	m_max_texture_size = std::max(1024u, static_cast<u32>(max_texture_size));
+
+	Console.WriteLn("GL: Using %s for point expansion, %s for line expansion and %s for sprite expansion.",
 		m_features.point_expand ? "hardware" : (m_features.vs_expand ? "vertex expanding" : "UNSUPPORTED"),
 		m_features.line_expand ? "hardware" : (m_features.vs_expand ? "vertex expanding" : "UNSUPPORTED"),
 		m_features.vs_expand ? "vertex expanding" : "CPU");
@@ -788,8 +784,23 @@ bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 
 void GSDeviceOGL::SetSwapInterval()
 {
-	const int interval = ((m_vsync_mode == VsyncMode::Adaptive) ? -1 : ((m_vsync_mode == VsyncMode::On) ? 1 : 0));
-	m_gl_context->SetSwapInterval(interval);
+	if (m_window_info.type == WindowInfo::Type::Surfaceless)
+		return;
+
+	// OpenGL does not support mailbox, only effectively FIFO.
+	// Fall back to manual throttling in this case.
+	m_vsync_mode = (m_vsync_mode == GSVSyncMode::Mailbox) ? GSVSyncMode::FIFO : m_vsync_mode;
+
+	// Window framebuffer has to be bound to call SetSwapInterval.
+	const s32 interval = static_cast<s32>(m_vsync_mode == GSVSyncMode::FIFO);
+	GLint current_fbo = 0;
+	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &current_fbo);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+
+	if (!m_gl_context->SetSwapInterval(interval))
+		WARNING_LOG("GL: Failed to set swap interval to {}", interval);
+
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, current_fbo);
 }
 
 void GSDeviceOGL::DestroyResources()
@@ -870,7 +881,7 @@ bool GSDeviceOGL::UpdateWindow()
 
 	if (!m_gl_context->ChangeSurface(m_window_info))
 	{
-		Console.Error("Failed to change surface");
+		Console.Error("GL: Failed to change surface");
 		return false;
 	}
 
@@ -879,9 +890,7 @@ bool GSDeviceOGL::UpdateWindow()
 	if (m_window_info.type != WindowInfo::Type::Surfaceless)
 	{
 		// reset vsync rate, since it (usually) gets lost
-		if (m_vsync_mode != VsyncMode::Adaptive || !m_gl_context->SetSwapInterval(-1))
-			m_gl_context->SetSwapInterval(static_cast<s32>(m_vsync_mode != VsyncMode::Off));
-
+		SetSwapInterval();
 		RenderBlankFrame();
 	}
 
@@ -891,8 +900,9 @@ bool GSDeviceOGL::UpdateWindow()
 void GSDeviceOGL::ResizeWindow(s32 new_window_width, s32 new_window_height, float new_window_scale)
 {
 	m_window_info.surface_scale = new_window_scale;
-	if (m_window_info.surface_width == static_cast<u32>(new_window_width) &&
-		m_window_info.surface_height == static_cast<u32>(new_window_height))
+	if (m_window_info.type == WindowInfo::Type::Surfaceless ||
+		(m_window_info.surface_width == static_cast<u32>(new_window_width) &&
+			m_window_info.surface_height == static_cast<u32>(new_window_height)))
 	{
 		return;
 	}
@@ -910,7 +920,7 @@ void GSDeviceOGL::DestroySurface()
 {
 	m_window_info = {};
 	if (!m_gl_context->ChangeSurface(m_window_info))
-		Console.Error("Failed to switch to surfaceless");
+		Console.Error("GL: Failed to switch to surfaceless");
 }
 
 std::string GSDeviceOGL::GetDriverInfo() const
@@ -1245,7 +1255,7 @@ GSDepthStencilOGL* GSDeviceOGL::CreateDepthStencil(OMDepthStencilSelector dssel)
 	return dss;
 }
 
-GSTexture* GSDeviceOGL::InitPrimDateTexture(GSTexture* rt, const GSVector4i& area, bool datm)
+GSTexture* GSDeviceOGL::InitPrimDateTexture(GSTexture* rt, const GSVector4i& area, SetDATM datm)
 {
 	const GSVector2i& rtsize = rt->GetSize();
 
@@ -1254,18 +1264,18 @@ GSTexture* GSDeviceOGL::InitPrimDateTexture(GSTexture* rt, const GSVector4i& are
 		return nullptr;
 
 	GL_PUSH("PrimID Destination Alpha Clear");
-	StretchRect(rt, GSVector4(area) / GSVector4(rtsize).xyxy(), tex, GSVector4(area), m_date.primid_ps[datm], false);
+	StretchRect(rt, GSVector4(area) / GSVector4(rtsize).xyxy(), tex, GSVector4(area), m_date.primid_ps[static_cast<u8>(datm)], false);
 	return tex;
 }
 
-std::string GSDeviceOGL::GetShaderSource(const std::string_view& entry, GLenum type, const std::string_view& glsl_h_code, const std::string_view& macro_sel)
+std::string GSDeviceOGL::GetShaderSource(const std::string_view entry, GLenum type, const std::string_view glsl_h_code, const std::string_view macro_sel)
 {
 	std::string src = GenGlslHeader(entry, type, macro_sel);
 	src += glsl_h_code;
 	return src;
 }
 
-std::string GSDeviceOGL::GenGlslHeader(const std::string_view& entry, GLenum type, const std::string_view& macro)
+std::string GSDeviceOGL::GenGlslHeader(const std::string_view entry, GLenum type, const std::string_view macro)
 {
 	std::string header;
 
@@ -1294,11 +1304,6 @@ std::string GSDeviceOGL::GenGlslHeader(const std::string_view& entry, GLenum typ
 	else
 		header += "#define HAS_FRAMEBUFFER_FETCH 0\n";
 
-	if (m_features.clip_control)
-		header += "#define HAS_CLIP_CONTROL 1\n";
-	else
-		header += "#define HAS_CLIP_CONTROL 0\n";
-
 	// Allow to puts several shader in 1 files
 	switch (type)
 	{
@@ -1312,13 +1317,17 @@ std::string GSDeviceOGL::GenGlslHeader(const std::string_view& entry, GLenum typ
 			header += "#define FRAGMENT_SHADER 1\n";
 			break;
 		default:
-			ASSERT(0);
+			pxAssert(0);
 	}
 
-	// Select the entry point ie the main function
-	header += "#define ";
-	header += entry;
-	header += " main\n";
+	// Don't remove this, the recursive macro breaks some Intel drivers.
+	if (entry != "main")
+	{
+		// Select the entry point ie the main function
+		header += "#define ";
+		header += entry;
+		header += " main\n";
+	}
 
 	header += macro;
 
@@ -1327,7 +1336,7 @@ std::string GSDeviceOGL::GenGlslHeader(const std::string_view& entry, GLenum typ
 
 std::string GSDeviceOGL::GetVSSource(VSSelector sel)
 {
-	DevCon.WriteLn("Compiling new vertex shader with selector 0x%" PRIX64, sel.key);
+	DevCon.WriteLn("GL: Compiling new vertex shader with selector 0x%" PRIX64, sel.key);
 
 	std::string macro = fmt::format("#define VS_FST {}\n", static_cast<u32>(sel.fst))
 		+ fmt::format("#define VS_IIP {}\n", static_cast<u32>(sel.iip))
@@ -1341,7 +1350,7 @@ std::string GSDeviceOGL::GetVSSource(VSSelector sel)
 
 std::string GSDeviceOGL::GetPSSource(const PSSelector& sel)
 {
-	DevCon.WriteLn("Compiling new pixel shader with selector 0x%" PRIX64 "%08X", sel.key_hi, sel.key_lo);
+	DevCon.WriteLn("GL: Compiling new pixel shader with selector 0x%" PRIX64 "%08X", sel.key_hi, sel.key_lo);
 
 	std::string macro = fmt::format("#define PS_FST {}\n", sel.fst)
 		+ fmt::format("#define PS_WMS {}\n", sel.wms)
@@ -1350,7 +1359,7 @@ std::string GSDeviceOGL::GetPSSource(const PSSelector& sel)
 		+ fmt::format("#define PS_ADJT {}\n", sel.adjt)
 		+ fmt::format("#define PS_AEM_FMT {}\n", sel.aem_fmt)
 		+ fmt::format("#define PS_PAL_FMT {}\n", sel.pal_fmt)
-		+ fmt::format("#define PS_DFMT {}\n", sel.dfmt)
+		+ fmt::format("#define PS_DST_FMT {}\n", sel.dst_fmt)
 		+ fmt::format("#define PS_DEPTH_FMT {}\n", sel.depth_fmt)
 		+ fmt::format("#define PS_CHANNEL_FETCH {}\n", sel.channel)
 		+ fmt::format("#define PS_URBAN_CHAOS_HLE {}\n", sel.urban_chaos_hle)
@@ -1360,6 +1369,7 @@ std::string GSDeviceOGL::GetPSSource(const PSSelector& sel)
 		+ fmt::format("#define PS_TFX {}\n", sel.tfx)
 		+ fmt::format("#define PS_TCC {}\n", sel.tcc)
 		+ fmt::format("#define PS_ATST {}\n", sel.atst)
+		+ fmt::format("#define PS_AFAIL {}\n", sel.afail)
 		+ fmt::format("#define PS_FOG {}\n", sel.fog)
 		+ fmt::format("#define PS_BLEND_HW {}\n", sel.blend_hw)
 		+ fmt::format("#define PS_A_MASKED {}\n", sel.a_masked)
@@ -1370,7 +1380,6 @@ std::string GSDeviceOGL::GetPSSource(const PSSelector& sel)
 		+ fmt::format("#define PS_COLCLIP {}\n", sel.colclip)
 		+ fmt::format("#define PS_DATE {}\n", sel.date)
 		+ fmt::format("#define PS_TCOFFSETHACK {}\n", sel.tcoffsethack)
-		+ fmt::format("#define PS_POINT_SAMPLER {}\n", sel.point_sampler)
 		+ fmt::format("#define PS_REGION_RECT {}\n", sel.region_rect)
 		+ fmt::format("#define PS_BLEND_A {}\n", sel.blend_a)
 		+ fmt::format("#define PS_BLEND_B {}\n", sel.blend_b)
@@ -1378,12 +1387,18 @@ std::string GSDeviceOGL::GetPSSource(const PSSelector& sel)
 		+ fmt::format("#define PS_BLEND_D {}\n", sel.blend_d)
 		+ fmt::format("#define PS_IIP {}\n", sel.iip)
 		+ fmt::format("#define PS_SHUFFLE {}\n", sel.shuffle)
-		+ fmt::format("#define PS_READ_BA {}\n", sel.read_ba)
+		+ fmt::format("#define PS_SHUFFLE_SAME {}\n", sel.shuffle_same)
+		+ fmt::format("#define PS_PROCESS_BA {}\n", sel.process_ba)
+		+ fmt::format("#define PS_PROCESS_RG {}\n", sel.process_rg)
+		+ fmt::format("#define PS_SHUFFLE_ACROSS {}\n", sel.shuffle_across)
 		+ fmt::format("#define PS_READ16_SRC {}\n", sel.real16src)
 		+ fmt::format("#define PS_WRITE_RG {}\n", sel.write_rg)
 		+ fmt::format("#define PS_FBMASK {}\n", sel.fbmask)
 		+ fmt::format("#define PS_HDR {}\n", sel.hdr)
+		+ fmt::format("#define PS_RTA_CORRECTION {}\n", sel.rta_correction)
+		+ fmt::format("#define PS_RTA_SRC_CORRECTION {}\n", sel.rta_source_correction)
 		+ fmt::format("#define PS_DITHER {}\n", sel.dither)
+		+ fmt::format("#define PS_DITHER_ADJUST {}\n", sel.dither_adjust)
 		+ fmt::format("#define PS_ZCLAMP {}\n", sel.zclamp)
 		+ fmt::format("#define PS_BLEND_MIX {}\n", sel.blend_mix)
 		+ fmt::format("#define PS_ROUND_INV {}\n", sel.round_inv)
@@ -1392,8 +1407,6 @@ std::string GSDeviceOGL::GetPSSource(const PSSelector& sel)
 		+ fmt::format("#define PS_SCANMSK {}\n", sel.scanmsk)
 		+ fmt::format("#define PS_NO_COLOR {}\n", sel.no_color)
 		+ fmt::format("#define PS_NO_COLOR1 {}\n", sel.no_color1)
-		+ fmt::format("#define PS_NO_ABLEND {}\n", sel.no_ablend)
-		+ fmt::format("#define PS_ONLY_ALPHA {}\n", sel.only_alpha)
 	;
 
 	std::string src = GenGlslHeader("ps_main", GL_FRAGMENT_SHADER, macro);
@@ -1462,7 +1475,7 @@ void GSDeviceOGL::StretchRect(GSTexture* sTex, const GSVector4& sRect, GSTexture
 	StretchRect(sTex, sRect, dTex, dRect, ps, false, OMColorMaskSelector(), linear);
 }
 
-void GSDeviceOGL::StretchRect(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex, const GSVector4& dRect, bool red, bool green, bool blue, bool alpha)
+void GSDeviceOGL::StretchRect(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex, const GSVector4& dRect, bool red, bool green, bool blue, bool alpha, ShaderConvert shader)
 {
 	OMColorMaskSelector cms;
 
@@ -1471,7 +1484,7 @@ void GSDeviceOGL::StretchRect(GSTexture* sTex, const GSVector4& sRect, GSTexture
 	cms.wb = blue;
 	cms.wa = alpha;
 
-	StretchRect(sTex, sRect, dTex, dRect, m_convert.ps[(int)ShaderConvert::COPY], false, cms, false);
+	StretchRect(sTex, sRect, dTex, dRect, m_convert.ps[(int)shader], false, cms, false);
 }
 
 void GSDeviceOGL::StretchRect(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex, const GSVector4& dRect, const GLProgram& ps, bool alpha_blend, OMColorMaskSelector cms, bool linear)
@@ -1597,6 +1610,29 @@ void GSDeviceOGL::ConvertToIndexedTexture(GSTexture* sTex, float sScale, u32 off
 	PSSetSamplerState(m_convert.pt);
 
 	const GSVector4 dRect(0, 0, dTex->GetWidth(), dTex->GetHeight());
+	DrawStretchRect(GSVector4::zero(), dRect, dTex->GetSize());
+}
+
+void GSDeviceOGL::FilteredDownsampleTexture(GSTexture* sTex, GSTexture* dTex, u32 downsample_factor, const GSVector2i& clamp_min, const GSVector4& dRect)
+{
+	CommitClear(sTex, false);
+
+	constexpr ShaderConvert shader = ShaderConvert::DOWNSAMPLE_COPY;
+	GLProgram& prog = m_convert.ps[static_cast<int>(shader)];
+	prog.Bind();
+	prog.Uniform2iv(0, clamp_min.v);
+	prog.Uniform1i(1, downsample_factor);
+	prog.Uniform1f(2, static_cast<float>(downsample_factor * downsample_factor));
+
+	OMSetDepthStencilState(m_convert.dss);
+	OMSetBlendState(false);
+	OMSetColorMaskState();
+	OMSetRenderTargets(dTex, nullptr);
+
+	PSSetShaderResource(0, sTex);
+	PSSetSamplerState(m_convert.pt);
+
+	//const GSVector4 dRect = GSVector4(dTex->GetRect());
 	DrawStretchRect(GSVector4::zero(), dRect, dTex->GetSize());
 }
 
@@ -1795,10 +1831,10 @@ void GSDeviceOGL::DoInterlace(GSTexture* sTex, const GSVector4& sRect, GSTexture
 bool GSDeviceOGL::CompileFXAAProgram()
 {
 	const std::string_view fxaa_macro = "#define FXAA_GLSL_130 1\n";
-	std::optional<std::string> shader = Host::ReadResourceFileToString("shaders/common/fxaa.fx");
+	const std::optional<std::string> shader = ReadShaderSource("shaders/common/fxaa.fx");
 	if (!shader.has_value())
 	{
-		Console.Error("Failed to read fxaa.fs");
+		Console.Error("GL: Failed to read fxaa.fs");
 		return false;
 	}
 
@@ -1806,7 +1842,7 @@ bool GSDeviceOGL::CompileFXAAProgram()
 	std::optional<GLProgram> prog = m_shader_cache.GetProgram(m_convert.vs, ps);
 	if (!prog.has_value())
 	{
-		Console.Error("Failed to compile FXAA fragment shader");
+		Console.Error("GL: Failed to compile FXAA fragment shader");
 		return false;
 	}
 
@@ -1833,7 +1869,7 @@ void GSDeviceOGL::DoFXAA(GSTexture* sTex, GSTexture* dTex)
 
 bool GSDeviceOGL::CompileShadeBoostProgram()
 {
-	const auto shader = Host::ReadResourceFileToString("shaders/opengl/shadeboost.glsl");
+	const std::optional<std::string> shader = ReadShaderSource("shaders/opengl/shadeboost.glsl");
 	if (!shader.has_value())
 	{
 		Host::ReportErrorAsync("GS", "Failed to read shaders/opengl/shadeboost.glsl.");
@@ -1865,18 +1901,18 @@ void GSDeviceOGL::DoShadeBoost(GSTexture* sTex, GSTexture* dTex, const float par
 	StretchRect(sTex, sRect, dTex, dRect, m_shadeboost.ps, false);
 }
 
-void GSDeviceOGL::SetupDATE(GSTexture* rt, GSTexture* ds, const GSVertexPT1* vertices, bool datm)
+void GSDeviceOGL::SetupDATE(GSTexture* rt, GSTexture* ds, const GSVertexPT1* vertices, SetDATM datm)
 {
 	GL_PUSH("DATE First Pass");
 
 	// sfex3 (after the capcom logo), vf4 (first menu fading in), ffxii shadows, rumble roses shadows, persona4 shadows
 
 	OMSetRenderTargets(nullptr, ds, &GLState::scissor);
-
-	const GLint clear_color = 0;
-	glClearBufferiv(GL_STENCIL, 0, &clear_color);
-
-	m_convert.ps[static_cast<int>(datm ? ShaderConvert::DATM_1 : ShaderConvert::DATM_0)].Bind();
+	{
+		const GLint clear_color = 0;
+		glClearBufferiv(GL_STENCIL, 0, &clear_color);
+	}
+	m_convert.ps[SetDATMShader(datm)].Bind();
 
 	// om
 
@@ -1973,7 +2009,7 @@ void GSDeviceOGL::ClearSamplerCache()
 
 bool GSDeviceOGL::CreateCASPrograms()
 {
-	std::optional<std::string> cas_source(Host::ReadResourceFileToString("shaders/opengl/cas.glsl"));
+	std::optional<std::string> cas_source = ReadShaderSource("shaders/opengl/cas.glsl");
 	if (!cas_source.has_value() || !GetCASShaderSource(&cas_source.value()))
 	{
 		m_features.cas_sharpening = false;
@@ -2026,10 +2062,10 @@ bool GSDeviceOGL::DoCAS(GSTexture* sTex, GSTexture* dTex, bool sharpen_only, con
 
 bool GSDeviceOGL::CreateImGuiProgram()
 {
-	std::optional<std::string> glsl = Host::ReadResourceFileToString("shaders/opengl/imgui.glsl");
+	const std::optional<std::string> glsl = ReadShaderSource("shaders/opengl/imgui.glsl");
 	if (!glsl.has_value())
 	{
-		Console.Error("Failed to read imgui.glsl");
+		Console.Error("GL: Failed to read imgui.glsl");
 		return false;
 	}
 
@@ -2038,7 +2074,7 @@ bool GSDeviceOGL::CreateImGuiProgram()
 		GetShaderSource("ps_main", GL_FRAGMENT_SHADER, glsl.value()));
 	if (!prog.has_value())
 	{
-		Console.Error("Failed to compile imgui shaders");
+		Console.Error("GL: Failed to compile imgui shaders");
 		return false;
 	}
 
@@ -2055,9 +2091,9 @@ bool GSDeviceOGL::CreateImGuiProgram()
 	glEnableVertexAttribArray(0);
 	glEnableVertexAttribArray(1);
 	glEnableVertexAttribArray(2);
-	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(ImDrawVert), (GLvoid*)IM_OFFSETOF(ImDrawVert, pos));
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(ImDrawVert), (GLvoid*)IM_OFFSETOF(ImDrawVert, uv));
-	glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(ImDrawVert), (GLvoid*)IM_OFFSETOF(ImDrawVert, col));
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(ImDrawVert), (GLvoid*)offsetof(ImDrawVert, pos));
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(ImDrawVert), (GLvoid*)offsetof(ImDrawVert, uv));
+	glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(ImDrawVert), (GLvoid*)offsetof(ImDrawVert, col));
 
 	glBindVertexArray(GLState::vao);
 	return true;
@@ -2130,7 +2166,7 @@ void GSDeviceOGL::RenderImGui()
 			}
 
 			// Since we don't have the GSTexture...
-			const GLuint texture_id = static_cast<GLuint>(reinterpret_cast<uintptr_t>(pcmd->GetTexID()));
+			const GLuint texture_id = static_cast<GLuint>(pcmd->GetTexID());
 			if (GLState::tex_unit[0] != texture_id)
 			{
 				GLState::tex_unit[0] = texture_id;
@@ -2216,7 +2252,8 @@ void GSDeviceOGL::OMUnbindTexture(GSTextureOGL* tex)
 		OMAttachDs();
 }
 
-void GSDeviceOGL::OMSetBlendState(bool enable, GLenum src_factor, GLenum dst_factor, GLenum op, bool is_constant, u8 constant)
+void GSDeviceOGL::OMSetBlendState(bool enable, GLenum src_factor, GLenum dst_factor, GLenum op,
+	GLenum src_factor_alpha, GLenum dst_factor_alpha, bool is_constant, u8 constant)
 {
 	if (enable)
 	{
@@ -2229,7 +2266,7 @@ void GSDeviceOGL::OMSetBlendState(bool enable, GLenum src_factor, GLenum dst_fac
 		if (is_constant && GLState::bf != constant)
 		{
 			GLState::bf = constant;
-			const float bf = (float)constant / 128.0f;
+			const float bf = static_cast<float>(constant) / 128.0f;
 			glBlendColor(bf, bf, bf, bf);
 		}
 
@@ -2239,26 +2276,20 @@ void GSDeviceOGL::OMSetBlendState(bool enable, GLenum src_factor, GLenum dst_fac
 			glBlendEquationSeparate(op, GL_FUNC_ADD);
 		}
 
-		if (GLState::f_sRGB != src_factor || GLState::f_dRGB != dst_factor)
+		if (GLState::f_sRGB != src_factor || GLState::f_dRGB != dst_factor ||
+			GLState::f_sA != src_factor_alpha || GLState::f_dA != dst_factor_alpha)
 		{
 			GLState::f_sRGB = src_factor;
 			GLState::f_dRGB = dst_factor;
-			glBlendFuncSeparate(src_factor, dst_factor, GL_ONE, GL_ZERO);
+			GLState::f_sA = src_factor_alpha;
+			GLState::f_dA = dst_factor_alpha;
+			glBlendFuncSeparate(src_factor, dst_factor, src_factor_alpha, dst_factor_alpha);
 		}
 	}
 	else
 	{
 		if (GLState::blend)
 		{
-			// make sure we're not using dual source
-			if (GLState::f_sRGB == GL_SRC1_ALPHA || GLState::f_sRGB == GL_ONE_MINUS_SRC1_ALPHA ||
-				GLState::f_dRGB == GL_SRC1_ALPHA || GLState::f_dRGB == GL_ONE_MINUS_SRC1_ALPHA)
-			{
-				glBlendFuncSeparate(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
-				GLState::f_sRGB = GL_ONE;
-				GLState::f_dRGB = GL_ZERO;
-			}
-
 			GLState::blend = false;
 			glDisable(GL_BLEND);
 		}
@@ -2383,6 +2414,45 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 	GSVector2i rtsize = (config.rt ? config.rt : config.ds)->GetSize();
 
 	GSTexture* primid_texture = nullptr;
+	GSTexture* hdr_rt = g_gs_device->GetHDRTexture();
+
+	if (hdr_rt)
+	{
+		if (config.hdr_mode == GSHWDrawConfig::HDRMode::EarlyResolve)
+		{
+			const GSVector2i size = config.rt->GetSize();
+			const GSVector4 dRect(config.hdr_update_area);
+			const GSVector4 sRect = dRect / GSVector4(size.x, size.y).xyxy();
+			StretchRect(hdr_rt, sRect, config.rt, dRect, ShaderConvert::HDR_RESOLVE, false);
+
+			Recycle(hdr_rt);
+
+			g_gs_device->SetHDRTexture(nullptr);
+
+			hdr_rt = nullptr;
+		}
+		else
+		{
+			config.ps.hdr = 1;
+		}
+	}
+
+	if (config.ps.hdr)
+	{
+		if (!hdr_rt)
+		{
+			config.hdr_update_area = config.drawarea;
+
+			hdr_rt = CreateRenderTarget(rtsize.x, rtsize.y, GSTexture::Format::HDRColor, false);
+			OMSetRenderTargets(hdr_rt, config.ds, nullptr);
+
+			g_gs_device->SetHDRTexture(hdr_rt);
+
+			const GSVector4 dRect = GSVector4((config.hdr_mode == GSHWDrawConfig::HDRMode::ConvertOnly) ? GSVector4i::loadh(rtsize) : config.drawarea);
+			const GSVector4 sRect = dRect / GSVector4(rtsize.x, rtsize.y).xyxy();
+			StretchRect(config.rt, sRect, hdr_rt, dRect, ShaderConvert::HDR_INIT, false);
+		}
+	}
 
 	// Destination Alpha Setup
 	switch (config.destination_alpha)
@@ -2391,7 +2461,7 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 		case GSHWDrawConfig::DestinationAlphaMode::Full:
 			break; // No setup
 		case GSHWDrawConfig::DestinationAlphaMode::PrimIDTracking:
-			primid_texture = InitPrimDateTexture(config.rt, config.drawarea, config.datm);
+			primid_texture = InitPrimDateTexture(hdr_rt ? hdr_rt : config.rt, config.drawarea, config.datm);
 			break;
 		case GSHWDrawConfig::DestinationAlphaMode::StencilOne:
 			if (m_features.texture_barrier)
@@ -2411,29 +2481,20 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 				{GSVector4(dst.x, dst.w, 0.0f, 0.0f), GSVector2(src.x, src.w)},
 				{GSVector4(dst.z, dst.w, 0.0f, 0.0f), GSVector2(src.z, src.w)},
 			};
-			SetupDATE(config.rt, config.ds, vertices, config.datm);
+			SetupDATE(hdr_rt ? hdr_rt : config.rt, config.ds, vertices, config.datm);
 		}
 	}
 
-	GSTexture* hdr_rt = nullptr;
 	GSTexture* draw_rt_clone = nullptr;
-	if (config.ps.hdr)
-	{
-		hdr_rt = CreateRenderTarget(rtsize.x, rtsize.y, GSTexture::Format::HDRColor, false);
-		OMSetRenderTargets(hdr_rt, config.ds, &config.scissor);
 
-		GSVector4 dRect(config.drawarea);
-		const GSVector4 sRect = dRect / GSVector4(rtsize.x, rtsize.y).xyxy();
-		StretchRect(config.rt, sRect, hdr_rt, dRect, ShaderConvert::HDR_INIT, false);
-	}
-	else if (config.require_one_barrier && !m_features.texture_barrier)
+	if (config.require_one_barrier && !m_features.texture_barrier)
 	{
 		// Requires a copy of the RT
-		draw_rt_clone = CreateTexture(rtsize.x, rtsize.y, 1, GSTexture::Format::Color, true);
+		draw_rt_clone = CreateTexture(rtsize.x, rtsize.y, 1, hdr_rt ? GSTexture::Format::HDRColor : GSTexture::Format::Color, true);
 		GL_PUSH("Copy RT to temp texture for fbmask {%d,%d %dx%d}",
 			config.drawarea.left, config.drawarea.top,
 			config.drawarea.width(), config.drawarea.height());
-		CopyRect(config.rt, draw_rt_clone, config.drawarea, config.drawarea.left, config.drawarea.top);
+		CopyRect(hdr_rt ? hdr_rt : config.rt, draw_rt_clone, config.drawarea, config.drawarea.left, config.drawarea.top);
 	}
 	else if (config.tex && config.tex == config.ds)
 	{
@@ -2479,7 +2540,7 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 	if (draw_rt_clone)
 		PSSetShaderResource(2, draw_rt_clone);
 	else if (config.require_one_barrier || config.require_full_barrier)
-		PSSetShaderResource(2, config.rt);
+		PSSetShaderResource(2, hdr_rt ? hdr_rt : config.rt);
 
 	SetupSampler(config.sampler);
 
@@ -2545,9 +2606,17 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 		PSSetShaderResource(3, primid_texture);
 	}
 
-	OMSetBlendState(config.blend.enable, s_gl_blend_factors[config.blend.src_factor],
-		s_gl_blend_factors[config.blend.dst_factor], s_gl_blend_ops[config.blend.op],
-		config.blend.constant_enable, config.blend.constant);
+	if (config.blend.IsEffective(config.colormask))
+	{
+		OMSetBlendState(config.blend.enable, s_gl_blend_factors[config.blend.src_factor],
+			s_gl_blend_factors[config.blend.dst_factor], s_gl_blend_ops[config.blend.op],
+			s_gl_blend_factors[config.blend.src_factor_alpha], s_gl_blend_factors[config.blend.dst_factor_alpha],
+			config.blend.constant_enable, config.blend.constant);
+	}
+	else
+	{
+		OMSetBlendState();
+	}
 
 	// avoid changing framebuffer just to switch from rt+depth to rt and vice versa
 	GSTexture* draw_rt = hdr_rt ? hdr_rt : config.rt;
@@ -2576,23 +2645,23 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 
 	SendHWDraw(config, psel.ps.IsFeedbackLoop());
 
-	if (config.separate_alpha_pass)
+	if (config.blend_multi_pass.enable)
 	{
-		GSHWDrawConfig::BlendState dummy_bs;
-		SetHWDrawConfigForAlphaPass(&psel.ps, &config.colormask, &dummy_bs, &config.depth);
-		SetupPipeline(psel);
-		OMSetColorMaskState(config.alpha_second_pass.colormask);
-		SetupOM(config.alpha_second_pass.depth);
-		OMSetBlendState();
-		SendHWDraw(config, psel.ps.IsFeedbackLoop());
-
-		// restore blend state if we're doing a second pass
-		if (config.alpha_second_pass.enable)
+		if (config.blend.IsEffective(config.colormask))
 		{
-			OMSetBlendState(config.blend.enable, s_gl_blend_factors[config.blend.src_factor],
-				s_gl_blend_factors[config.blend.dst_factor], s_gl_blend_ops[config.blend.op],
-				config.blend.constant_enable, config.blend.constant);
+			OMSetBlendState(config.blend_multi_pass.blend.enable, s_gl_blend_factors[config.blend_multi_pass.blend.src_factor],
+				s_gl_blend_factors[config.blend_multi_pass.blend.dst_factor], s_gl_blend_ops[config.blend_multi_pass.blend.op],
+				s_gl_blend_factors[config.blend_multi_pass.blend.src_factor_alpha], s_gl_blend_factors[config.blend_multi_pass.blend.dst_factor_alpha],
+				config.blend_multi_pass.blend.constant_enable, config.blend_multi_pass.blend.constant);
 		}
+		else
+		{
+			OMSetBlendState();
+		}
+		psel.ps.blend_hw = config.blend_multi_pass.blend_hw;
+		psel.ps.dither = config.blend_multi_pass.dither;
+		SetupPipeline(psel);
+		SendHWDraw(config, psel.ps.IsFeedbackLoop());
 	}
 
 	if (config.alpha_second_pass.enable)
@@ -2608,19 +2677,19 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 		psel.ps = config.alpha_second_pass.ps;
 		SetupPipeline(psel);
 		OMSetColorMaskState(config.alpha_second_pass.colormask);
+		if (config.blend.IsEffective(config.alpha_second_pass.colormask))
+		{
+			OMSetBlendState(config.blend.enable, s_gl_blend_factors[config.blend.src_factor],
+				s_gl_blend_factors[config.blend.dst_factor], s_gl_blend_ops[config.blend.op],
+				s_gl_blend_factors[config.blend.src_factor_alpha], s_gl_blend_factors[config.blend.dst_factor_alpha],
+				config.blend.constant_enable, config.blend.constant);
+		}
+		else
+		{
+			OMSetBlendState();
+		}
 		SetupOM(config.alpha_second_pass.depth);
 		SendHWDraw(config, psel.ps.IsFeedbackLoop());
-
-		if (config.second_separate_alpha_pass)
-		{
-			GSHWDrawConfig::BlendState dummy_bs;
-			SetHWDrawConfigForAlphaPass(&psel.ps, &config.colormask, &dummy_bs, &config.depth);
-			SetupPipeline(psel);
-			OMSetColorMaskState(config.alpha_second_pass.colormask);
-			SetupOM(config.alpha_second_pass.depth);
-			OMSetBlendState();
-			SendHWDraw(config, psel.ps.IsFeedbackLoop());
-		}
 	}
 
 	if (primid_texture)
@@ -2630,12 +2699,19 @@ void GSDeviceOGL::RenderHW(GSHWDrawConfig& config)
 
 	if (hdr_rt)
 	{
-		GSVector2i size = config.rt->GetSize();
-		GSVector4 dRect(config.drawarea);
-		const GSVector4 sRect = dRect / GSVector4(size.x, size.y).xyxy();
-		StretchRect(hdr_rt, sRect, config.rt, dRect, ShaderConvert::HDR_RESOLVE, false);
+		config.hdr_update_area = config.hdr_update_area.runion(config.drawarea);
 
-		Recycle(hdr_rt);
+		if ((config.hdr_mode == GSHWDrawConfig::HDRMode::ResolveOnly || config.hdr_mode == GSHWDrawConfig::HDRMode::ConvertAndResolve))
+		{
+			const GSVector2i size = config.rt->GetSize();
+			const GSVector4 dRect(config.hdr_update_area);
+			const GSVector4 sRect = dRect / GSVector4(size.x, size.y).xyxy();
+			StretchRect(hdr_rt, sRect, config.rt, dRect, ShaderConvert::HDR_RESOLVE, false);
+
+			Recycle(hdr_rt);
+
+			g_gs_device->SetHDRTexture(nullptr);
+		}
 	}
 }
 

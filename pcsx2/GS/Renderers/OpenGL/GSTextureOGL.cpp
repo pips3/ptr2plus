@@ -1,27 +1,14 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2021 PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
-#include "PrecompiledHeader.h"
-#include <limits.h>
 #include "GS/Renderers/OpenGL/GSDeviceOGL.h"
 #include "GS/Renderers/OpenGL/GSTextureOGL.h"
 #include "GS/Renderers/OpenGL/GLState.h"
 #include "GS/GSExtra.h"
 #include "GS/GSPerfMon.h"
-#include "GS/GSPng.h"
 #include "GS/GSGL.h"
+
+#include "common/Console.h"
 #include "common/BitUtils.h"
 #include "common/AlignedMalloc.h"
 #include "common/StringUtil.h"
@@ -144,7 +131,7 @@ GSTextureOGL::GSTextureOGL(Type type, int width, int height, int levels, Format 
 			m_int_format = 0;
 			m_int_type = 0;
 			m_int_shift = 0;
-			ASSERT(0);
+			pxAssert(0);
 	}
 
 	// Only 32 bits input texture will be supported for mipmap
@@ -185,7 +172,7 @@ void* GSTextureOGL::GetNativeHandle() const
 
 bool GSTextureOGL::Update(const GSVector4i& r, const void* data, int pitch, int layer)
 {
-	ASSERT(m_type != Type::DepthStencil);
+	pxAssert(m_type != Type::DepthStencil);
 
 	if (layer >= m_mipmap_levels)
 		return true;
@@ -261,8 +248,8 @@ bool GSTextureOGL::Map(GSMap& m, const GSVector4i* _r, int layer)
 
 	GSVector4i r = _r ? *_r : GSVector4i(0, 0, m_size.x, m_size.y);
 	// Will need some investigation
-	ASSERT(r.width() != 0);
-	ASSERT(r.height() != 0);
+	pxAssert(r.width() != 0);
+	pxAssert(r.height() != 0);
 
 	const u32 pitch = Common::AlignUpPow2(r.width() << m_int_shift, TEXTURE_UPLOAD_PITCH_ALIGNMENT);
 	m.pitch = pitch;
@@ -324,84 +311,23 @@ void GSTextureOGL::Unmap()
 
 void GSTextureOGL::GenerateMipmap()
 {
-	ASSERT(m_mipmap_levels > 1);
+	pxAssert(m_mipmap_levels > 1);
 	GSDeviceOGL::GetInstance()->CommitClear(this, true);
 	glGenerateTextureMipmap(m_texture_id);
 }
 
-bool GSTextureOGL::Save(const std::string& fn)
-{
-	GSDeviceOGL::GetInstance()->CommitClear(this, true);
-
-	// Collect the texture data
-	u32 pitch = 4 * m_size.x;
-	u32 buf_size = pitch * m_size.y * 2; // Note *2 for security (depth/stencil)
-	std::unique_ptr<u8[]> image(new u8[buf_size]);
 #ifdef PCSX2_DEVBUILD
-	GSPng::Format fmt = GSPng::RGB_A_PNG;
-#else
-	GSPng::Format fmt = GSPng::RGB_PNG;
-#endif
 
-	if (IsDepthStencil())
-	{
-		glBindFramebuffer(GL_READ_FRAMEBUFFER, GSDeviceOGL::GetInstance()->GetFBORead());
-
-		glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_texture_id, 0);
-		glReadPixels(0, 0, m_size.x, m_size.y, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, image.get());
-
-		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-
-		fmt = GSPng::RGB_A_PNG;
-	}
-	else if (m_format == Format::PrimID)
-	{
-		// Note: 4.5 function used for accurate DATE
-		glGetTextureImage(m_texture_id, 0, GL_RED_INTEGER, GL_INT, buf_size, image.get());
-
-		fmt = GSPng::R32I_PNG;
-	}
-	else
-	{
-		glBindFramebuffer(GL_READ_FRAMEBUFFER, GSDeviceOGL::GetInstance()->GetFBORead());
-
-		glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_texture_id, 0);
-
-		if (m_format == Format::Color)
-		{
-			glReadPixels(0, 0, m_size.x, m_size.y, GL_RGBA, GL_UNSIGNED_BYTE, image.get());
-		}
-		else if (m_format == Format::UInt16)
-		{
-			glReadPixels(0, 0, m_size.x, m_size.y, GL_RED_INTEGER, GL_UNSIGNED_SHORT, image.get());
-			fmt = GSPng::R16I_PNG;
-		}
-		else if (m_format == Format::UNorm8)
-		{
-			fmt = GSPng::R8I_PNG;
-			glReadPixels(0, 0, m_size.x, m_size.y, GL_RED, GL_UNSIGNED_BYTE, image.get());
-		}
-
-		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-	}
-
-	return GSPng::Save(fmt, fn, image.get(), m_size.x, m_size.y, pitch, GSConfig.PNGCompressionLevel);
-}
-
-void GSTextureOGL::Swap(GSTexture* tex)
+void GSTextureOGL::SetDebugName(std::string_view name)
 {
-	GSTexture::Swap(tex);
+	if (name.empty())
+		return;
 
-	std::swap(m_texture_id, static_cast<GSTextureOGL*>(tex)->m_texture_id);
-	std::swap(m_r_x, static_cast<GSTextureOGL*>(tex)->m_r_x);
-	std::swap(m_r_x, static_cast<GSTextureOGL*>(tex)->m_r_y);
-	std::swap(m_r_w, static_cast<GSTextureOGL*>(tex)->m_r_w);
-	std::swap(m_r_h, static_cast<GSTextureOGL*>(tex)->m_r_h);
-	std::swap(m_layer, static_cast<GSTextureOGL*>(tex)->m_layer);
-	std::swap(m_int_format, static_cast<GSTextureOGL*>(tex)->m_int_format);
-	std::swap(m_int_type, static_cast<GSTextureOGL*>(tex)->m_int_type);
-	std::swap(m_int_shift, static_cast<GSTextureOGL*>(tex)->m_int_shift);
+	if (glObjectLabel)
+		glObjectLabel(GL_TEXTURE, m_texture_id, static_cast<GLsizei>(name.length()), static_cast<const GLchar*>(name.data()));
 }
+
+#endif
 
 GSDownloadTextureOGL::GSDownloadTextureOGL(u32 width, u32 height, GSTexture::Format format)
 	: GSDownloadTexture(width, height, format)
@@ -556,3 +482,16 @@ void GSDownloadTextureOGL::Flush()
 	glDeleteSync(m_sync);
 	m_sync = {};
 }
+
+#ifdef PCSX2_DEVBUILD
+
+void GSDownloadTextureOGL::SetDebugName(std::string_view name)
+{
+	if (name.empty())
+		return;
+
+	if (glObjectLabel)
+		glObjectLabel(GL_BUFFER, m_buffer_id, name.length(), name.data());
+}
+
+#endif

@@ -1,5 +1,4 @@
 add_library(pcsx2-soundtouch
-	source/SoundStretch/WavFile.cpp
 	source/SoundTouch/AAFilter.cpp
 	source/SoundTouch/BPMDetect.cpp
 	source/SoundTouch/cpu_detect_x86.cpp
@@ -19,7 +18,6 @@ add_library(pcsx2-soundtouch
 	soundtouch/FIFOSamplePipe.h
 	soundtouch/SoundTouch.h
 	soundtouch/STTypes.h
-	source/SoundStretch/WavFile.h
 	source/SoundTouch/AAFilter.h
 	source/SoundTouch/cpu_detect.h
 	source/SoundTouch/FIRFilter.h
@@ -42,6 +40,10 @@ if(NOT "${CMAKE_BUILD_TYPE}" MATCHES "Debug")
 	else()
 		target_compile_options(pcsx2-soundtouch PRIVATE -Ofast)
 	endif()
+endif()
+
+if(_M_ARM64)
+	target_compile_definitions(pcsx2-soundtouch PRIVATE SOUNDTOUCH_USE_NEON)
 endif()
 
 add_library(SoundTouch::SoundTouch ALIAS pcsx2-soundtouch)

@@ -1,19 +1,5 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2023  PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
-
-#include "PrecompiledHeader.h"
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #include <QtCore/QTimer>
 #include <QtGui/QKeyEvent>
@@ -29,7 +15,7 @@
 
 #include "QtHost.h"
 #include "QtUtils.h"
-#include "Settings/ControllerSettingsDialog.h"
+#include "Settings/ControllerSettingsWindow.h"
 #include "Settings/InputBindingDialog.h"
 #include "Settings/InputBindingWidget.h"
 
@@ -56,9 +42,9 @@ InputBindingWidget::~InputBindingWidget()
 	Q_ASSERT(!isListeningForInput());
 }
 
-bool InputBindingWidget::isMouseMappingEnabled()
+bool InputBindingWidget::isMouseMappingEnabled(SettingsInterface* sif)
 {
-	return Host::GetBaseBoolSettingValue("UI", "EnableMouseMapping", false);
+	return sif ? sif->GetBoolValue("UI", "EnableMouseMapping", false) : Host::GetBaseBoolSettingValue("UI", "EnableMouseMapping", false);
 }
 
 void InputBindingWidget::initialize(
@@ -305,7 +291,7 @@ void InputBindingWidget::startListeningForInput(u32 timeout_in_seconds)
 {
 	m_value_ranges.clear();
 	m_new_bindings.clear();
-	m_mouse_mapping_enabled = isMouseMappingEnabled();
+	m_mouse_mapping_enabled = isMouseMappingEnabled(m_sif);
 	m_input_listen_start_position = QCursor::pos();
 	m_input_listen_timer = new QTimer(this);
 	m_input_listen_timer->setSingleShot(false);
@@ -416,7 +402,7 @@ InputVibrationBindingWidget::InputVibrationBindingWidget(QWidget* parent)
 }
 
 InputVibrationBindingWidget::InputVibrationBindingWidget(
-	QWidget* parent, ControllerSettingsDialog* dialog, std::string section_name, std::string key_name)
+	QWidget* parent, ControllerSettingsWindow* dialog, std::string section_name, std::string key_name)
 {
 	setMinimumWidth(225);
 	setMaximumWidth(225);
@@ -430,7 +416,7 @@ InputVibrationBindingWidget::~InputVibrationBindingWidget()
 {
 }
 
-void InputVibrationBindingWidget::setKey(ControllerSettingsDialog* dialog, std::string section_name, std::string key_name)
+void InputVibrationBindingWidget::setKey(ControllerSettingsWindow* dialog, std::string section_name, std::string key_name)
 {
 	m_dialog = dialog;
 	m_section_name = std::move(section_name);

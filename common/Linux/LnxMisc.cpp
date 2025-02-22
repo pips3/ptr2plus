@@ -1,40 +1,32 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2021  PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
-
-#if !defined(_WIN32) && !defined(__APPLE__)
-#include <ctype.h>
-#include <time.h>
-#include <unistd.h>
-#include <optional>
-#include <spawn.h>
-#include <sys/time.h>
-#include <sys/wait.h>
-#include <unistd.h>
-
-#include "fmt/core.h"
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #include "common/Pcsx2Types.h"
-#include "common/General.h"
+#include "common/Console.h"
+#include "common/HostSys.h"
+#include "common/Path.h"
 #include "common/ScopedGuard.h"
+#include "common/SmallString.h"
 #include "common/StringUtil.h"
 #include "common/Threading.h"
 #include "common/WindowInfo.h"
 
-#ifdef DBUS_API
+#include "fmt/format.h"
+
 #include <dbus/dbus.h>
-#endif
+#include <spawn.h>
+#include <sys/time.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <X11/Xlib.h>
+#include <X11/extensions/XInput2.h>
+
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
+#include <ctype.h>
+#include <optional>
+#include <thread>
 
 // Returns 0 on failure (not supported by the operating system).
 u64 GetPhysicalMemory()
@@ -63,13 +55,46 @@ u64 GetCPUTicks()
 std::string GetOSVersionString()
 {
 #if defined(__linux__)
+	FILE* file = fopen("/etc/os-release", "r");
+	if (file)
+	{
+		char line[256];
+		std::string distro;
+		std::string version = "";
+		while (fgets(line, sizeof(line), file))
+		{
+			std::string_view line_view(line);
+			if (line_view.starts_with("NAME="))
+			{
+				distro = line_view.substr(5, line_view.size() - 6);
+			}
+			else if (line_view.starts_with("BUILD_ID="))
+			{
+				version = line_view.substr(9, line_view.size() - 10);
+			}
+			else if (line_view.starts_with("VERSION_ID="))
+			{
+				version = line_view.substr(11, line_view.size() - 12);
+			}
+		}
+		fclose(file);
+
+		// Some distros put quotes around the name and or version.
+		if (distro.starts_with("\"") && distro.ends_with("\""))
+			distro = distro.substr(1, distro.size() - 2);
+
+		if (version.starts_with("\"") && version.ends_with("\""))
+					version = version.substr(1, version.size() - 2);
+
+		if (!distro.empty() && !version.empty())
+			return fmt::format("{} {}", distro, version);
+	}
+
 	return "Linux";
 #else // freebsd
 	return "Other Unix";
 #endif
 }
-
-#ifdef DBUS_API
 
 static bool SetScreensaverInhibitDBus(const bool inhibit_requested, const char* program_name, const char* reason)
 {
@@ -81,6 +106,7 @@ static bool SetScreensaverInhibitDBus(const bool inhibit_requested, const char* 
 	DBusMessage* message = nullptr;
 	DBusMessage* response = nullptr;
 	DBusMessageIter message_itr;
+	char* desktop_session = nullptr;
 
 	ScopedGuard cleanup = [&]() {
 		if (dbus_error_is_set(&error_dbus))
@@ -102,7 +128,17 @@ static bool SetScreensaverInhibitDBus(const bool inhibit_requested, const char* 
 		s_cookie = 0;
 		s_comparison_connection = connection;
 	}
-	message = dbus_message_new_method_call("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver", "org.freedesktop.ScreenSaver", bus_method);
+
+	desktop_session = std::getenv("DESKTOP_SESSION");
+	if (desktop_session && std::strncmp(desktop_session, "mate", 4) == 0)
+	{
+		message = dbus_message_new_method_call("org.mate.ScreenSaver", "/org/mate/ScreenSaver", "org.mate.ScreenSaver", bus_method);
+	}
+	else
+	{
+		message = dbus_message_new_method_call("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver", "org.freedesktop.ScreenSaver", bus_method);
+	}
+
 	if (!message)
 		return false;
 	// Initialize an append iterator for the message, gets freed with the message.
@@ -139,81 +175,114 @@ static bool SetScreensaverInhibitDBus(const bool inhibit_requested, const char* 
 	return true;
 }
 
-#endif
-
-#if !defined(DBUS_API) && defined(X11_API)
-
-static bool SetScreensaverInhibitX11(const WindowInfo& wi, bool inhibit)
+bool Common::InhibitScreensaver(bool inhibit)
 {
-	extern char** environ;
-
-	const char* command = "xdg-screensaver";
-	const char* operation = inhibit ? "suspend" : "resume";
-	std::string id = fmt::format("0x{:X}", static_cast<u64>(reinterpret_cast<uintptr_t>(wi.window_handle)));
-
-	char* argv[4] = {const_cast<char*>(command), const_cast<char*>(operation), const_cast<char*>(id.c_str()),
-		nullptr};
-
-	// Since we set SA_NOCLDWAIT in Qt, we don't need to wait here.
-	pid_t pid;
-	int res = posix_spawnp(&pid, "xdg-screensaver", nullptr, nullptr, argv, environ);
-	return (res == 0);
-}
-
-static bool SetScreensaverInhibit(const WindowInfo& wi, bool inhibit)
-{
-	switch (wi.type)
-	{
-#ifdef X11_API
-		case WindowInfo::Type::X11:
-			return SetScreensaverInhibitX11(wi, inhibit);
-#endif
-
-		default:
-			return false;
-	}
-}
-
-static std::optional<WindowInfo> s_inhibit_window_info;
-
-#endif
-
-bool WindowInfo::InhibitScreensaver(const WindowInfo& wi, bool inhibit)
-{
-
-#ifdef DBUS_API
-
 	return SetScreensaverInhibitDBus(inhibit, "PCSX2", "PCSX2 VM is running.");
+}
 
-#else
+void Common::SetMousePosition(int x, int y)
+{
+	Display* display = XOpenDisplay(nullptr);
+	if (!display)
+		return;
 
-	if (s_inhibit_window_info.has_value())
+	Window root = DefaultRootWindow(display);
+	XWarpPointer(display, None, root, 0, 0, 0, 0, x, y);
+	XFlush(display);
+
+	XCloseDisplay(display);
+}
+
+static std::function<void(int, int)> fnMouseMoveCb;
+static std::atomic<bool> trackingMouse = false;
+static std::thread mouseThread;
+
+void mouseEventLoop()
+{
+	Threading::SetNameOfCurrentThread("X11 Mouse Thread");
+	Display* display = XOpenDisplay(nullptr);
+	if (!display)
 	{
-		// Bit of extra logic here, because wx spams it and we don't want to
-		// spawn processes unnecessarily.
-		if (s_inhibit_window_info->type == wi.type &&
-			s_inhibit_window_info->window_handle == wi.window_handle &&
-			s_inhibit_window_info->surface_handle == wi.surface_handle)
-		{
-			return true;
-		}
-		// Clear the old.
-		SetScreensaverInhibit(s_inhibit_window_info.value(), false);
-		s_inhibit_window_info.reset();
+		return;
 	}
 
-	if (!inhibit)
+	int opcode, eventcode, error;
+	if (!XQueryExtension(display, "XInputExtension", &opcode, &eventcode, &error))
+	{
+		XCloseDisplay(display);
+		return;
+	}
+
+	const Window root = DefaultRootWindow(display);
+	XIEventMask evmask;
+	unsigned char mask[(XI_LASTEVENT + 7) / 8] = {0};
+
+	evmask.deviceid = XIAllDevices;
+	evmask.mask_len = sizeof(mask);
+	evmask.mask = mask;
+	XISetMask(mask, XI_RawMotion);
+
+	XISelectEvents(display, root, &evmask, 1);
+	XSync(display, False);
+
+	XEvent event;
+	while (trackingMouse)
+	{
+		// XNextEvent is blocking, this is a zombie process risk if no events arrive
+		// while we are trying to shutdown.
+		// https://nrk.neocities.org/articles/x11-timeout-with-xsyncalarm might be
+		// a better solution than using XPending.
+		if (!XPending(display))
+		{
+			Threading::Sleep(1);
+			Threading::SpinWait();
+			continue;
+		}
+
+		XNextEvent(display, &event);
+		if (event.xcookie.type == GenericEvent &&
+			event.xcookie.extension == opcode &&
+			XGetEventData(display, &event.xcookie))
+		{
+			XIRawEvent* raw_event = reinterpret_cast<XIRawEvent*>(event.xcookie.data);
+			if (raw_event->evtype == XI_RawMotion)
+			{
+				Window w;
+				int root_x, root_y, win_x, win_y;
+				unsigned int mask;
+				XQueryPointer(display, root, &w, &w, &root_x, &root_y, &win_x, &win_y, &mask);
+
+				if (fnMouseMoveCb)
+					fnMouseMoveCb(root_x, root_y);
+			}
+			XFreeEventData(display, &event.xcookie);
+		}
+	}
+
+	XCloseDisplay(display);
+}
+
+bool Common::AttachMousePositionCb(std::function<void(int, int)> cb)
+{
+	fnMouseMoveCb = cb;
+
+	if (trackingMouse)
 		return true;
 
-	// New window.
-	if (!SetScreensaverInhibit(wi, true))
-		return false;
-
-	s_inhibit_window_info = wi;
+	trackingMouse = true;
+	mouseThread = std::thread(mouseEventLoop);
+	mouseThread.detach();
 	return true;
+}
 
-#endif
-
+void Common::DetachMousePositionCb()
+{
+	trackingMouse = false;
+	fnMouseMoveCb = nullptr;
+	if (mouseThread.joinable())
+	{
+		mouseThread.join();
+	}
 }
 
 bool Common::PlaySoundAsync(const char* path)
@@ -226,7 +295,28 @@ bool Common::PlaySoundAsync(const char* path)
 
 	// Since we set SA_NOCLDWAIT in Qt, we don't need to wait here.
 	int res = posix_spawnp(&pid, cmdname, nullptr, nullptr, const_cast<char**>(argv), environ);
-	return (res == 0);
+	if (res == 0)
+		return true;
+
+	// Try gst-play-1.0.
+	const char* gst_play_cmdname = "gst-play-1.0";
+	const char* gst_play_argv[] = {cmdname, path, nullptr};
+	res = posix_spawnp(&pid, gst_play_cmdname, nullptr, nullptr, const_cast<char**>(gst_play_argv), environ);
+	if (res == 0)
+		return true;
+
+	// gst-launch? Bit messier for sure.
+	TinyString location_str = TinyString::from_format("location={}", path);
+	TinyString parse_str = TinyString::from_format("{}parse", Path::GetExtension(path));
+	const char* gst_launch_cmdname = "gst-launch-1.0";
+	const char* gst_launch_argv[] = {
+		gst_launch_cmdname, "filesrc", location_str.c_str(), "!", parse_str.c_str(), "!", "alsasink", nullptr};
+	res = posix_spawnp(&pid, gst_launch_cmdname, nullptr, nullptr, const_cast<char**>(gst_launch_argv), environ);
+	if (res == 0)
+		return true;
+
+	Console.ErrorFmt("Failed to play sound effect {}. Make sure you have aplay, gst-play-1.0, or gst-launch-1.0 available.", path);
+	return false;
 #else
 	return false;
 #endif
@@ -244,5 +334,3 @@ void Threading::SleepUntil(u64 ticks)
 	ts.tv_nsec = static_cast<long>(ticks % 1000000000ULL);
 	clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, nullptr);
 }
-
-#endif

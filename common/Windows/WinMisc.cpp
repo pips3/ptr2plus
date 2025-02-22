@@ -1,28 +1,13 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2021  PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
-#if defined(_WIN32)
-
-#include "common/Pcsx2Defs.h"
+#include "common/Console.h"
+#include "common/FileSystem.h"
+#include "common/HostSys.h"
 #include "common/RedtapeWindows.h"
 #include "common/StringUtil.h"
 #include "common/Threading.h"
-#include "common/General.h"
 #include "common/WindowInfo.h"
-
-#include "fmt/core.h"
 
 #include <mmsystem.h>
 #include <timeapi.h>
@@ -93,7 +78,7 @@ std::string GetOSVersionString()
 	return retval;
 }
 
-bool WindowInfo::InhibitScreensaver(const WindowInfo& wi, bool inhibit)
+bool Common::InhibitScreensaver(bool inhibit)
 {
 	EXECUTION_STATE flags = ES_CONTINUOUS;
 	if (inhibit)
@@ -102,9 +87,64 @@ bool WindowInfo::InhibitScreensaver(const WindowInfo& wi, bool inhibit)
 	return true;
 }
 
+void Common::SetMousePosition(int x, int y)
+{
+	SetCursorPos(x, y);
+}
+
+/*
+static HHOOK mouseHook = nullptr;
+static std::function<void(int, int)> fnMouseMoveCb;
+LRESULT CALLBACK Mousecb(int nCode, WPARAM wParam, LPARAM lParam)
+{
+	if (nCode >= 0 && wParam == WM_MOUSEMOVE)
+	{
+		MSLLHOOKSTRUCT* mouse = (MSLLHOOKSTRUCT*)lParam;
+		fnMouseMoveCb(mouse->pt.x, mouse->pt.y);
+	}
+	return CallNextHookEx(mouseHook, nCode, wParam, lParam);
+}
+*/
+
+// This (and the above) works, but is not recommended on Windows and is only here for consistency.
+// Defer to using raw input instead.
+bool Common::AttachMousePositionCb(std::function<void(int, int)> cb)
+{
+	/*
+		if (mouseHook)
+			Common::DetachMousePositionCb();
+
+		fnMouseMoveCb = cb;
+		mouseHook = SetWindowsHookEx(WH_MOUSE_LL, Mousecb, GetModuleHandle(NULL), 0);
+		if (!mouseHook)
+		{
+			Console.Warning("Failed to set mouse hook: %d", GetLastError());
+			return false;
+		}
+
+		#if defined(PCSX2_DEBUG) || defined(PCSX2_DEVBUILD)
+			static bool warned = false;
+			if (!warned)
+			{
+				Console.Warning("Mouse hooks are enabled, and this isn't a release build! Using a debugger, or loading symbols, _will_ stall the hook and cause global mouse lag.");
+				warned = true;
+			}
+		#endif
+	*/
+	return true;
+}
+
+void Common::DetachMousePositionCb()
+{
+	/*
+		UnhookWindowsHookEx(mouseHook);
+		mouseHook = nullptr;
+	*/
+}
+
 bool Common::PlaySoundAsync(const char* path)
 {
-	const std::wstring wpath(StringUtil::UTF8StringToWideString(path));
+	const std::wstring wpath = FileSystem::GetWin32Path(path);
 	return PlaySoundW(wpath.c_str(), NULL, SND_ASYNC | SND_NODEFAULT);
 }
 
@@ -138,4 +178,3 @@ void Threading::SleepUntil(u64 ticks)
 	}
 }
 
-#endif

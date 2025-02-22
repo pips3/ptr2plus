@@ -1,27 +1,14 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2022  PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
 #include <functional>
+#include <mutex>
 #include <optional>
-#include <string>
-#include <vector>
 #include <string>
 #include <string_view>
-#include <optional>
+#include <vector>
 
 #include "common/Pcsx2Defs.h"
 
@@ -49,6 +36,7 @@ struct VMBootParameters
 
 	std::optional<bool> fast_boot;
 	std::optional<bool> fullscreen;
+	bool disable_achievements_hardcore_mode = false;
 };
 
 namespace VMManager
@@ -81,7 +69,7 @@ namespace VMManager
 	std::string GetDiscELF();
 
 	/// Returns the name of the disc/executable currently running.
-	std::string GetTitle();
+	std::string GetTitle(bool prefer_en);
 
 	/// Returns the CRC for the main ELF of the disc currently running.
 	u32 GetDiscCRC();
@@ -91,6 +79,9 @@ namespace VMManager
 
 	/// Returns the crc of the executable currently running.
 	u32 GetCurrentCRC();
+
+	/// Returns the path to the ELF which is currently running. Only safe to read on the EE thread.
+	const std::string& GetCurrentELF();
 
 	/// Initializes all system components.
 	bool Initialize(VMBootParameters boot_params);
@@ -104,6 +95,9 @@ namespace VMManager
 	/// Runs the VM until the CPU execution is canceled.
 	void Execute();
 
+	/// Polls input, updates subsystems which are present while paused/inactive.
+	void IdlePollUpdate();
+
 	/// Changes the pause state of the VM, resetting anything needed when unpausing.
 	void SetPaused(bool paused);
 
@@ -115,6 +109,12 @@ namespace VMManager
 
 	/// Reloads game patches.
 	void ReloadPatches(bool reload_files, bool reload_enabled_list, bool verbose, bool verbose_if_changed);
+
+	/// Reloads input sources.
+	void ReloadInputSources();
+
+	/// Reloads input bindings.
+	void ReloadInputBindings();
 
 	/// Returns the save state filename for the given game serial/crc.
 	std::string GetSaveStateFileName(const char* game_serial, u32 game_crc, s32 slot);
@@ -149,6 +149,25 @@ namespace VMManager
 	/// Updates the host vsync state, as well as timer frequencies. Call when the speed limiter is adjusted.
 	void SetLimiterMode(LimiterModeType type);
 
+	/// Returns the target speed, based on the limiter mode.
+	float GetTargetSpeed();
+
+	/// Ensures the target speed reflects the current configuration. Call if you change anything in
+	/// EmuConfig.EmulationSpeed without going through the usual config apply.
+	void UpdateTargetSpeed();
+
+	/// Returns true if the target speed is being synchronized with the host's refresh rate.
+	bool IsTargetSpeedAdjustedToHost();
+
+	/// Returns the current frame rate of the virtual machine.
+	float GetFrameRate();
+
+	/// Returns the desired vsync mode, depending on the runtime environment.
+	GSVSyncMode GetEffectiveVSyncMode();
+
+	/// Returns true if presents can be skipped, when running outside of normal speed.
+	bool ShouldAllowPresentThrottle();
+
 	/// Runs the virtual machine for the specified number of video frames, and then automatically pauses.
 	void FrameAdvance(u32 num_frames = 1);
 
@@ -156,35 +175,47 @@ namespace VMManager
 	/// Returns false if the new disc can't be opened.
 	bool ChangeDisc(CDVD_SourceType source, std::string path);
 
+	/// Changes the ELF to boot ("ELF override"). The VM will be reset.
+	bool SetELFOverride(std::string path);
+
+	/// Changes the current GS dump being played back.
+	bool ChangeGSDump(const std::string& path);
+
 	/// Returns true if the specified path is an ELF.
-	bool IsElfFileName(const std::string_view& path);
+	bool IsElfFileName(const std::string_view path);
 
 	/// Returns true if the specified path is a blockdump.
-	bool IsBlockDumpFileName(const std::string_view& path);
+	bool IsBlockDumpFileName(const std::string_view path);
 
 	/// Returns true if the specified path is a GS Dump.
-	bool IsGSDumpFileName(const std::string_view& path);
+	bool IsGSDumpFileName(const std::string_view path);
 
 	/// Returns true if the specified path is a save state.
-	bool IsSaveStateFileName(const std::string_view& path);
+	bool IsSaveStateFileName(const std::string_view path);
 
 	/// Returns true if the specified path is a disc image.
-	bool IsDiscFileName(const std::string_view& path);
+	bool IsDiscFileName(const std::string_view path);
 
 	/// Returns true if the specified path is a disc/elf/etc.
-	bool IsLoadableFileName(const std::string_view& path);
+	bool IsLoadableFileName(const std::string_view path);
 
 	/// Returns the serial to use when computing the game settings path for the current game.
 	std::string GetSerialForGameSettings();
 
 	/// Returns the path for the game settings ini file for the specified CRC.
-	std::string GetGameSettingsPath(const std::string_view& game_serial, u32 game_crc);
+	std::string GetGameSettingsPath(const std::string_view game_serial, u32 game_crc);
 
 	/// Returns the ISO override for an ELF via gamesettings.
 	std::string GetDiscOverrideFromGameSettings(const std::string& elf_path);
 
 	/// Returns the path for the input profile ini file with the specified name (may not exist).
-	std::string GetInputProfilePath(const std::string_view& name);
+	std::string GetInputProfilePath(const std::string_view name);
+
+	/// Returns the path for the debugger settings json file for the specified game serial and CRC.
+	std::string GetDebuggerSettingsFilePath(const std::string_view game_serial, u32 game_crc);
+
+	/// Returns the path for the debugger settings json file for the current game.
+	std::string GetDebuggerSettingsFilePathForCurrentGame();
 
 	/// Resizes the render window to the display size, with an optional scale.
 	/// If the scale is set to 0, the internal resolution will be used, otherwise it is treated as a multiplier to 1x.
@@ -193,15 +224,11 @@ namespace VMManager
 	/// Initializes default configuration in the specified file for the specified categories.
 	void SetDefaultSettings(SettingsInterface& si, bool folders, bool core, bool controllers, bool hotkeys, bool ui);
 
-	/// Returns a list of processors in the system, and their corresponding affinity mask.
-	/// This list is ordered by most performant to least performant for pinning threads to.
-	const std::vector<u32>& GetSortedProcessorList();
-
 	/// Returns the time elapsed in the current play session.
 	u64 GetSessionPlayedTime();
 
 	/// Called when the rich presence string, provided by RetroAchievements, changes.
-	void UpdateDiscordPresence(const std::string& rich_presence);
+	void UpdateDiscordPresence(bool update_session_time);
 
 	/// Internal callbacks, implemented in the emu core.
 	namespace Internal
@@ -211,6 +238,12 @@ namespace VMManager
 
 		/// Loads early settings. Call once on startup.
 		void LoadStartupSettings();
+
+		/// Overrides the filename used for the file log.
+		void SetFileLogPath(std::string path);
+
+		/// Prevents the system console from being displayed.
+		void SetBlockSystemConsole(bool block);
 
 		/// Initializes common host state, called on the CPU thread.
 		bool CPUThreadInitialize();
@@ -224,6 +257,9 @@ namespace VMManager
 		/// Updates the variables in the EmuFolders namespace, reloading subsystems if needed.
 		void UpdateEmuFolders();
 
+		/// Returns true if the VM was fast booted.
+		bool WasFastBooted();
+
 		/// Returns true if fast booting is active (requested but ELF not started).
 		bool IsFastBootInProgress();
 
@@ -236,11 +272,24 @@ namespace VMManager
 		/// Returns the PC of the currently-executing ELF's entry point.
 		u32 GetCurrentELFEntryPoint();
 
+		/// Called when the internal frame rate changes.
+		void FrameRateChanged();
+
+		/// Throttles execution, or limits the frame rate.
+		void Throttle();
+
+		/// Resets/clears all execution/code caches.
+		void ClearCPUExecutionCaches();
+
+		/// Returns a list of processors in the system, suitable for pinning for the software renderer.
+		const std::vector<u32>& GetSoftwareRendererProcessorList();
+
 		const std::string& GetELFOverride();
 		bool IsExecutionInterrupted();
 		void ELFLoadingOnCPUThread(std::string elf_path);
 		void EntryPointCompilingOnCPUThread();
 		void VSyncOnCPUThread();
+		void PollInputOnCPUThread();
 	} // namespace Internal
 } // namespace VMManager
 
@@ -272,19 +321,19 @@ namespace Host
 	void OnPerformanceMetricsUpdated();
 
 	/// Called when a save state is loading, before the file is processed.
-	void OnSaveStateLoading(const std::string_view& filename);
+	void OnSaveStateLoading(const std::string_view filename);
 
 	/// Called after a save state is successfully loaded. If the save state was invalid, was_successful will be false.
-	void OnSaveStateLoaded(const std::string_view& filename, bool was_successful);
+	void OnSaveStateLoaded(const std::string_view filename, bool was_successful);
 
 	/// Called when a save state is being created/saved. The compression/write to disk is asynchronous, so this callback
 	/// just signifies that the save has started, not necessarily completed.
-	void OnSaveStateSaved(const std::string_view& filename);
+	void OnSaveStateSaved(const std::string_view filename);
 
 	/// Provided by the host; called when the running executable changes.
 	void OnGameChanged(const std::string& title, const std::string& elf_override, const std::string& disc_path,
 		const std::string& disc_serial, u32 disc_crc, u32 current_crc);
 
 	/// Provided by the host; called once per frame at guest vsync.
-	void VSyncOnCPUThread();
+	void PumpMessagesOnCPUThread();
 } // namespace Host

@@ -1,20 +1,9 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2023 PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #include "common/Pcsx2Defs.h"
 
+[[maybe_unused]]
 __ri static void MemCopy_WrappedDest(const u128* src, u128* destBase, uint& destStart, uint destSize, uint len)
 {
 	uint endpos = destStart + len;
@@ -32,6 +21,7 @@ __ri static void MemCopy_WrappedDest(const u128* src, u128* destBase, uint& dest
 	}
 }
 
+[[maybe_unused]]
 __ri static void MemCopy_WrappedSrc(const u128* srcBase, uint& srcStart, uint srcSize, u128* dest, uint len)
 {
 	uint endpos = srcStart + len;

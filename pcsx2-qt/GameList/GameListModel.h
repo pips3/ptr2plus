@@ -1,17 +1,5 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2023  PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
@@ -55,7 +43,7 @@ public:
 	static QIcon getIconForType(GameList::EntryType type);
 	static QIcon getIconForRegion(GameList::Region region);
 
-	GameListModel(QObject* parent = nullptr);
+	GameListModel(float cover_scale, bool show_cover_titles, QObject* parent = nullptr);
 	~GameListModel();
 
 	int rowCount(const QModelIndex& parent = QModelIndex()) const override;
@@ -66,7 +54,7 @@ public:
 	__fi const QString& getColumnDisplayName(int column) { return m_column_display_names[column]; }
 
 	void refresh();
-	void refreshImages();
+	void reloadThemeSpecificImages();
 
 	bool titlesLessThan(int left_row, int right_row) const;
 
@@ -83,15 +71,23 @@ public:
 	void refreshCovers();
 	void updateCacheSize(int width, int height);
 
+Q_SIGNALS:
+	void coverScaleChanged();
+
 private:
+	void loadSettings();
 	void loadCommonImages();
+	void loadThemeSpecificImages();
 	void setColumnDisplayNames();
 	void loadOrGenerateCover(const GameList::Entry* ge);
 	void invalidateCoverForPath(const std::string& path);
 
+	static QString formatTimespan(time_t timespan);
+
 	float m_cover_scale = 0.0f;
 	std::atomic<u32> m_cover_scale_counter{0};
 	bool m_show_titles_for_covers = false;
+	bool m_prefer_english_titles = false;
 
 	std::array<QString, Column_Count> m_column_display_names;
 	std::array<QPixmap, static_cast<u32>(GameList::EntryType::Count)> m_type_pixmaps;

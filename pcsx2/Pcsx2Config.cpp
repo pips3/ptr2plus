@@ -1,36 +1,46 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2023  PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
-#include "PrecompiledHeader.h"
-
+#include "common/CocoaTools.h"
 #include "common/FileSystem.h"
 #include "common/Path.h"
 #include "common/SettingsInterface.h"
 #include "common/SettingsWrapper.h"
 #include "common/StringUtil.h"
+#include "common/SmallString.h"
 #include "Config.h"
 #include "GS.h"
 #include "CDVD/CDVDcommon.h"
+#include "Host.h"
+#include "Host/AudioStream.h"
 #include "SIO/Memcard/MemoryCardFile.h"
+#include "SIO/Pad/Pad.h"
 #include "USB/USB.h"
 
+#include "fmt/format.h"
 #ifdef _WIN32
 #include "common/RedtapeWindows.h"
 #include <KnownFolders.h>
 #include <ShlObj.h>
 #endif
+
+// This macro is actually useful for about any and every possible application of C++ equality operators.
+// Stuck here because of legacy code, new code shouldn't rely on it, it's difficult to read.
+#define OpEqu(field) (field == right.field)
+
+// Default EE/VU control registers have exceptions off, DaZ/FTZ, and the rounding mode set to Chop/Zero.
+static constexpr FPControlRegister DEFAULT_FPU_FP_CONTROL_REGISTER = FPControlRegister::GetDefault()
+																		 .DisableExceptions()
+																		 .SetDenormalsAreZero(true)
+																		 .SetFlushToZero(true)
+																		 .SetRoundMode(FPRoundMode::ChopZero);
+static constexpr FPControlRegister DEFAULT_VU_FP_CONTROL_REGISTER = FPControlRegister::GetDefault()
+																		.DisableExceptions()
+																		.SetDenormalsAreZero(true)
+																		.SetFlushToZero(true)
+																		.SetRoundMode(FPRoundMode::ChopZero);
+
+Pcsx2Config EmuConfig;
 
 const char* SettingInfo::StringDefaultValue() const
 {
@@ -144,15 +154,16 @@ namespace EmuFolders
 	std::string Settings;
 	std::string PTR2Mods;
 	std::string PTR2;
+	std::string DebuggerSettings;
 	std::string Bios;
 	std::string Snapshots;
 	std::string Savestates;
 	std::string MemoryCards;
-	std::string Langs;
 	std::string Logs;
 	std::string Cheats;
 	std::string Patches;
 	std::string Resources;
+	std::string UserResources;
 	std::string Cache;
 	std::string Covers;
 	std::string GameSettings;
@@ -160,11 +171,59 @@ namespace EmuFolders
 	std::string InputProfiles;
 	std::string Videos;
 
-	static void SetAppRoot();
-	static void SetResourcesDirectory();
 	static bool ShouldUsePortableMode();
-	static void SetDataDirectory();
+	static std::string GetPortableModePath();
 } // namespace EmuFolders
+
+TraceLogsEE::TraceLogsEE()
+{
+	bitset = 0;
+}
+
+bool TraceLogsEE::operator==(const TraceLogsEE& right) const
+{
+	return OpEqu(bitset);
+}
+
+bool TraceLogsEE::operator!=(const TraceLogsEE& right) const
+{
+	return !this->operator==(right);
+}
+
+TraceLogsIOP::TraceLogsIOP()
+{
+	bitset = 0;
+}
+
+bool TraceLogsIOP::operator==(const TraceLogsIOP& right) const
+{
+	return OpEqu(bitset);
+}
+
+bool TraceLogsIOP::operator!=(const TraceLogsIOP& right) const
+{
+	return !this->operator==(right);
+}
+
+TraceLogsMISC::TraceLogsMISC()
+{
+	bitset = 0;
+}
+
+bool TraceLogsMISC::operator==(const TraceLogsMISC& right) const
+{
+	return OpEqu(bitset);
+}
+
+bool TraceLogsMISC::operator!=(const TraceLogsMISC& right) const
+{
+	return !this->operator==(right);
+}
+
+TraceLogFilters::TraceLogFilters()
+{
+	Enabled = false;
+}
 
 void TraceLogFilters::LoadSave(SettingsWrapper& wrap)
 {
@@ -172,11 +231,93 @@ void TraceLogFilters::LoadSave(SettingsWrapper& wrap)
 
 	SettingsWrapEntry(Enabled);
 
-	// Retaining backwards compat of the trace log enablers isn't really important, and
-	// doing each one by hand would be murder.  So let's cheat and just save it as an int:
+	SettingsWrapBitBool(EE.bios);
+	SettingsWrapBitBool(EE.memory);
+	SettingsWrapBitBool(EE.giftag);
+	SettingsWrapBitBool(EE.vifcode);
+	SettingsWrapBitBool(EE.mskpath3);
+	SettingsWrapBitBool(EE.r5900);
+	SettingsWrapBitBool(EE.cop0);
+	SettingsWrapBitBool(EE.cop1);
+	SettingsWrapBitBool(EE.cop2);
+	SettingsWrapBitBool(EE.cache);
+	SettingsWrapBitBool(EE.knownhw);
+	SettingsWrapBitBool(EE.unknownhw);
+	SettingsWrapBitBool(EE.dmahw);
+	SettingsWrapBitBool(EE.ipu);
+	SettingsWrapBitBool(EE.dmac);
+	SettingsWrapBitBool(EE.counters);
+	SettingsWrapBitBool(EE.spr);
+	SettingsWrapBitBool(EE.vif);
+	SettingsWrapBitBool(EE.gif);
 
-	SettingsWrapEntry(EE.bitset);
-	SettingsWrapEntry(IOP.bitset);
+	SettingsWrapBitBool(IOP.bios);
+	SettingsWrapBitBool(IOP.memcards);
+	SettingsWrapBitBool(IOP.pad);
+	SettingsWrapBitBool(IOP.r3000a);
+	SettingsWrapBitBool(IOP.cop2);
+	SettingsWrapBitBool(IOP.memory);
+	SettingsWrapBitBool(IOP.knownhw);
+	SettingsWrapBitBool(IOP.unknownhw);
+	SettingsWrapBitBool(IOP.dmahw);
+	SettingsWrapBitBool(IOP.dmac);
+	SettingsWrapBitBool(IOP.counters);
+	SettingsWrapBitBool(IOP.cdvd);
+	SettingsWrapBitBool(IOP.mdec);
+
+	SettingsWrapBitBool(MISC.sif);
+}
+
+void TraceLogFilters::SyncToConfig() const
+{
+	auto& ee = TraceLogging.EE;
+	ee.Bios.Enabled = EE.bios;
+	ee.Memory.Enabled = EE.memory;
+	ee.GIFtag.Enabled = EE.giftag;
+	ee.VIFcode.Enabled = EE.vifcode;
+	ee.MSKPATH3.Enabled = EE.mskpath3;
+	ee.R5900.Enabled = EE.r5900;
+	ee.COP0.Enabled = EE.cop0;
+	ee.COP1.Enabled = EE.cop1;
+	ee.COP2.Enabled = EE.cop2;
+	ee.KnownHw.Enabled = EE.knownhw;
+	ee.UnknownHw.Enabled = EE.unknownhw;
+	ee.DMAhw.Enabled = EE.dmahw;
+	ee.IPU.Enabled = EE.ipu;
+	ee.DMAC.Enabled = EE.dmac;
+	ee.Counters.Enabled = EE.counters;
+	ee.SPR.Enabled = EE.spr;
+	ee.VIF.Enabled = EE.vif;
+	ee.GIF.Enabled = EE.gif;
+
+	auto& iop = TraceLogging.IOP;
+	iop.Bios.Enabled = IOP.bios;
+	iop.Memcards.Enabled = IOP.memcards;
+	iop.PAD.Enabled = IOP.pad;
+	iop.R3000A.Enabled = IOP.r3000a;
+	iop.COP2.Enabled = IOP.cop2;
+	iop.Memory.Enabled = IOP.memory;
+	iop.KnownHw.Enabled = IOP.knownhw;
+	iop.UnknownHw.Enabled = IOP.unknownhw;
+	iop.DMAhw.Enabled = IOP.dmahw;
+	iop.DMAC.Enabled = IOP.dmac;
+	iop.Counters.Enabled = IOP.counters;
+	iop.CDVD.Enabled = IOP.cdvd;
+	iop.MDEC.Enabled = IOP.mdec;
+
+	TraceLogging.SIF.Enabled = MISC.sif;
+
+	EmuConfig.Trace.Enabled = Enabled;
+}
+
+bool TraceLogFilters::operator==(const TraceLogFilters& right) const
+{
+	return OpEqu(Enabled) && OpEqu(EE) && OpEqu(IOP) && OpEqu(MISC);
+}
+
+bool TraceLogFilters::operator!=(const TraceLogFilters& right) const
+{
+	return !this->operator==(right);
 }
 
 static constexpr const char* s_speed_hack_names[] = {
@@ -192,7 +333,7 @@ const char* Pcsx2Config::SpeedhackOptions::GetSpeedHackName(SpeedHack id)
 	return s_speed_hack_names[static_cast<u32>(id)];
 }
 
-std::optional<SpeedHack> Pcsx2Config::SpeedhackOptions::ParseSpeedHackName(const std::string_view& name)
+std::optional<SpeedHack> Pcsx2Config::SpeedhackOptions::ParseSpeedHackName(const std::string_view name)
 {
 	for (u32 i = 0; i < std::size(s_speed_hack_names); i++)
 	{
@@ -273,6 +414,11 @@ void Pcsx2Config::SpeedhackOptions::LoadSave(SettingsWrapper& wrap)
 	EECycleSkip = std::min(EECycleSkip, MAX_EE_CYCLE_SKIP);
 }
 
+Pcsx2Config::ProfilerOptions::ProfilerOptions()
+	: bitset(0xfffffffe)
+{
+}
+
 void Pcsx2Config::ProfilerOptions::LoadSave(SettingsWrapper& wrap)
 {
 	SettingsWrapSection("EmuCore/Profiler");
@@ -282,6 +428,16 @@ void Pcsx2Config::ProfilerOptions::LoadSave(SettingsWrapper& wrap)
 	SettingsWrapBitBool(RecBlocks_IOP);
 	SettingsWrapBitBool(RecBlocks_VU0);
 	SettingsWrapBitBool(RecBlocks_VU1);
+}
+
+bool Pcsx2Config::ProfilerOptions::operator!=(const ProfilerOptions& right) const
+{
+	return !OpEqu(bitset);
+}
+
+bool Pcsx2Config::ProfilerOptions::operator==(const ProfilerOptions& right) const
+{
+	return OpEqu(bitset);
 }
 
 Pcsx2Config::RecompilerOptions::RecompilerOptions()
@@ -393,6 +549,33 @@ void Pcsx2Config::RecompilerOptions::LoadSave(SettingsWrapper& wrap)
 	SettingsWrapBitBool(fpuFullMode);
 }
 
+u32 Pcsx2Config::RecompilerOptions::GetEEClampMode() const
+{
+	return fpuFullMode ? 3 : (fpuExtraOverflow ? 2 : (fpuOverflow ? 1 : 0));
+}
+
+void Pcsx2Config::RecompilerOptions::SetEEClampMode(u32 value)
+{
+	fpuOverflow = (value >= 1);
+	fpuExtraOverflow = (value >= 2);
+	fpuFullMode = (value >= 3);
+}
+
+u32 Pcsx2Config::RecompilerOptions::GetVUClampMode() const
+{
+	return vu0SignOverflow ? 3 : (vu0ExtraOverflow ? 2 : (vu0Overflow ? 1 : 0));
+}
+
+bool Pcsx2Config::RecompilerOptions::operator!=(const RecompilerOptions& right) const
+{
+	return !OpEqu(bitset);
+}
+
+bool Pcsx2Config::RecompilerOptions::operator==(const RecompilerOptions& right) const
+{
+	return OpEqu(bitset);
+}
+
 bool Pcsx2Config::CpuOptions::CpusChanged(const CpuOptions& right) const
 {
 	return (Recompiler.EnableEE != right.Recompiler.EnableEE ||
@@ -401,21 +584,31 @@ bool Pcsx2Config::CpuOptions::CpusChanged(const CpuOptions& right) const
 			Recompiler.EnableVU1 != right.Recompiler.EnableVU1);
 }
 
+bool Pcsx2Config::CpuOptions::operator!=(const CpuOptions& right) const
+{
+	return !this->operator==(right);
+}
+
+bool Pcsx2Config::CpuOptions::operator==(const CpuOptions& right) const
+{
+	return OpEqu(FPUFPCR) && OpEqu(FPUDivFPCR) && OpEqu(VU0FPCR) && OpEqu(VU1FPCR) && OpEqu(Recompiler);
+}
+
 Pcsx2Config::CpuOptions::CpuOptions()
 {
-	sseMXCSR.bitmask = DEFAULT_sseMXCSR;
-	sseVU0MXCSR.bitmask = DEFAULT_sseVUMXCSR;
-	sseVU1MXCSR.bitmask = DEFAULT_sseVUMXCSR;
-	AffinityControlMode = 0;
+	FPUFPCR = DEFAULT_FPU_FP_CONTROL_REGISTER;
+
+	// Rounding defaults to nearest to match old behavior.
+	// TODO: Make it default to the same as the rest of the FPU operations, at some point.
+	FPUDivFPCR = FPControlRegister(DEFAULT_FPU_FP_CONTROL_REGISTER).SetRoundMode(FPRoundMode::Nearest);
+
+	VU0FPCR = DEFAULT_VU_FP_CONTROL_REGISTER;
+	VU1FPCR = DEFAULT_VU_FP_CONTROL_REGISTER;
+	ExtraMemory = false;
 }
 
 void Pcsx2Config::CpuOptions::ApplySanityCheck()
 {
-	sseMXCSR.ClearExceptionFlags().DisableExceptions();
-	sseVU0MXCSR.ClearExceptionFlags().DisableExceptions();
-	sseVU1MXCSR.ClearExceptionFlags().DisableExceptions();
-	AffinityControlMode = std::min<u32>(AffinityControlMode, 6);
-
 	Recompiler.ApplySanityCheck();
 }
 
@@ -423,17 +616,24 @@ void Pcsx2Config::CpuOptions::LoadSave(SettingsWrapper& wrap)
 {
 	SettingsWrapSection("EmuCore/CPU");
 
-	SettingsWrapBitBoolEx(sseMXCSR.DenormalsAreZero, "FPU.DenormalsAreZero");
-	SettingsWrapBitBoolEx(sseMXCSR.FlushToZero, "FPU.FlushToZero");
-	SettingsWrapBitfieldEx(sseMXCSR.RoundingControl, "FPU.Roundmode");
-	SettingsWrapEntry(AffinityControlMode);
+	const auto read_fpcr = [&wrap, &CURRENT_SETTINGS_SECTION](FPControlRegister& fpcr, std::string_view prefix) {
+		fpcr.SetDenormalsAreZero(wrap.EntryBitBool(CURRENT_SETTINGS_SECTION, TinyString::from_format("{}.DenormalsAreZero", prefix),
+			fpcr.GetDenormalsAreZero(), fpcr.GetDenormalsAreZero()));
+		fpcr.SetFlushToZero(wrap.EntryBitBool(CURRENT_SETTINGS_SECTION, TinyString::from_format("{}.DenormalsAreZero", prefix),
+			fpcr.GetFlushToZero(), fpcr.GetFlushToZero()));
 
-	SettingsWrapBitBoolEx(sseVU0MXCSR.DenormalsAreZero, "VU0.DenormalsAreZero");
-	SettingsWrapBitBoolEx(sseVU0MXCSR.FlushToZero, "VU0.FlushToZero");
-	SettingsWrapBitfieldEx(sseVU0MXCSR.RoundingControl, "VU0.Roundmode");
-	SettingsWrapBitBoolEx(sseVU1MXCSR.DenormalsAreZero, "VU1.DenormalsAreZero");
-	SettingsWrapBitBoolEx(sseVU1MXCSR.FlushToZero, "VU1.FlushToZero");
-	SettingsWrapBitfieldEx(sseVU1MXCSR.RoundingControl, "VU1.Roundmode");
+		uint round_mode = static_cast<uint>(fpcr.GetRoundMode());
+		wrap.Entry(CURRENT_SETTINGS_SECTION, TinyString::from_format("{}.Roundmode", prefix), round_mode, round_mode);
+		round_mode = std::min(round_mode, static_cast<uint>(FPRoundMode::MaxCount) - 1u);
+		fpcr.SetRoundMode(static_cast<FPRoundMode>(round_mode));
+	};
+
+	read_fpcr(FPUFPCR, "FPU");
+	read_fpcr(FPUDivFPCR, "FPUDiv");
+	read_fpcr(VU0FPCR, "VU0");
+	read_fpcr(VU1FPCR, "VU1");
+
+	SettingsWrapBitBool(ExtraMemory);
 
 	Recompiler.LoadSave(wrap);
 }
@@ -443,6 +643,7 @@ const char* Pcsx2Config::GSOptions::AspectRatioNames[] = {
 	"Auto 4:3/3:2",
 	"4:3",
 	"16:9",
+	"10:7",
 	nullptr};
 
 const char* Pcsx2Config::GSOptions::FMVAspectRatioSwitchNames[] = {
@@ -450,6 +651,7 @@ const char* Pcsx2Config::GSOptions::FMVAspectRatioSwitchNames[] = {
 	"Auto 4:3/3:2",
 	"4:3",
 	"16:9",
+	"10:7",
 	nullptr};
 
 const char* Pcsx2Config::GSOptions::BlendingLevelNames[] = {
@@ -475,6 +677,7 @@ const char* Pcsx2Config::GSOptions::GetRendererName(GSRendererType type)
 {
 	switch (type)
 	{
+			// clang-format off
 		case GSRendererType::Auto:  return "Auto";
 		case GSRendererType::DX11:  return "Direct3D 11";
 		case GSRendererType::DX12:  return "Direct3D 12";
@@ -484,6 +687,7 @@ const char* Pcsx2Config::GSOptions::GetRendererName(GSRendererType type)
 		case GSRendererType::SW:    return "Software";
 		case GSRendererType::Null:  return "Null";
 		default:                    return "";
+			// clang-format on
 	}
 }
 
@@ -502,17 +706,17 @@ Pcsx2Config::GSOptions::GSOptions()
 	PCRTCOverscan = false;
 	IntegerScaling = false;
 	LinearPresent = GSPostBilinearMode::BilinearSmooth;
-	SyncToHostRefreshRate = false;
 	UseDebugDevice = false;
 	UseBlitSwapChain = false;
 	DisableShaderCache = false;
 	DisableFramebufferFetch = false;
 	DisableVertexShaderExpand = false;
-	DisableThreadedPresentation = false;
 	SkipDuplicateFrames = false;
-	OsdShowMessages = true;
+	OsdMessagesPos = OsdOverlayPos::TopLeft;
+	OsdPerformancePos = OsdOverlayPos::TopRight;
 	OsdShowSpeed = false;
 	OsdShowFPS = false;
+	OsdShowVPS = false;
 	OsdShowCPU = false;
 	OsdShowGPU = false;
 	OsdShowResolution = false;
@@ -521,6 +725,10 @@ Pcsx2Config::GSOptions::GSOptions()
 	OsdShowSettings = false;
 	OsdShowInputs = false;
 	OsdShowFrameTimes = false;
+	OsdShowVersion = false;
+	OsdShowHardwareInfo = false;
+	OsdShowVideoCapture = true;
+	OsdShowInputRec = true;
 
 	HWDownloadMode = GSHardwareDownloadMode::Enabled;
 	HWSpinGPUForReadbacks = false;
@@ -529,6 +737,7 @@ Pcsx2Config::GSOptions::GSOptions()
 	AutoFlushSW = true;
 	PreloadFrameWithGSData = false;
 	Mipmap = true;
+	HWMipmap = true;
 
 	ManualUserHacks = false;
 	UserHacks_AlignSpriteX = false;
@@ -540,7 +749,7 @@ Pcsx2Config::GSOptions::GSOptions()
 	UserHacks_DisableSafeFeatures = false;
 	UserHacks_DisableRenderFixes = false;
 	UserHacks_MergePPSprite = false;
-	UserHacks_WildHack = false;
+	UserHacks_ForceEvenSpritePosition = false;
 	UserHacks_BilinearHack = GSBilinearDirtyMode::Automatic;
 	UserHacks_NativePaletteDraw = false;
 
@@ -565,9 +774,6 @@ bool Pcsx2Config::GSOptions::operator==(const GSOptions& right) const
 		OpEqu(SynchronousMTGS) &&
 		OpEqu(VsyncQueueSize) &&
 
-		OpEqu(FrameLimitEnable) &&
-
-		OpEqu(LimitScalar) &&
 		OpEqu(FramerateNTSC) &&
 		OpEqu(FrameratePAL) &&
 
@@ -582,8 +788,6 @@ bool Pcsx2Config::GSOptions::OptionsAreEqual(const GSOptions& right) const
 	return (
 		OpEqu(bitset) &&
 
-		OpEqu(VsyncEnable) &&
-
 		OpEqu(InterlaceMode) &&
 		OpEqu(LinearPresent) &&
 
@@ -594,11 +798,12 @@ bool Pcsx2Config::GSOptions::OptionsAreEqual(const GSOptions& right) const
 		OpEqu(Crop[3]) &&
 
 		OpEqu(OsdScale) &&
+		OpEqu(OsdMessagesPos) &&
+		OpEqu(OsdPerformancePos) &&
 
 		OpEqu(Renderer) &&
 		OpEqu(UpscaleMultiplier) &&
 
-		OpEqu(HWMipmap) &&
 		OpEqu(AccurateBlendingUnit) &&
 		OpEqu(TextureFiltering) &&
 		OpEqu(TexturePreloading) &&
@@ -618,9 +823,9 @@ bool Pcsx2Config::GSOptions::OptionsAreEqual(const GSOptions& right) const
 		OpEqu(SkipDrawStart) &&
 
 		OpEqu(UserHacks_AutoFlush) &&
-		OpEqu(UserHacks_HalfBottomOverride) &&
 		OpEqu(UserHacks_HalfPixelOffset) &&
 		OpEqu(UserHacks_RoundSprite) &&
+		OpEqu(UserHacks_NativeScaling) &&
 		OpEqu(UserHacks_TCOffsetX) &&
 		OpEqu(UserHacks_TCOffsetY) &&
 		OpEqu(UserHacks_CPUSpriteRenderBW) &&
@@ -638,6 +843,10 @@ bool Pcsx2Config::GSOptions::OptionsAreEqual(const GSOptions& right) const
 		OpEqu(PNGCompressionLevel) &&
 		OpEqu(SaveN) &&
 		OpEqu(SaveL) &&
+		OpEqu(SaveB) &&
+		OpEqu(SaveNF) &&
+		OpEqu(SaveLF) &&
+		OpEqu(SaveBF) &&
 
 		OpEqu(ExclusiveFullscreenControl) &&
 		OpEqu(ScreenshotSize) &&
@@ -646,6 +855,7 @@ bool Pcsx2Config::GSOptions::OptionsAreEqual(const GSOptions& right) const
 
 		OpEqu(CaptureContainer) &&
 		OpEqu(VideoCaptureCodec) &&
+		OpEqu(VideoCaptureFormat) &&
 		OpEqu(VideoCaptureParameters) &&
 		OpEqu(AudioCaptureCodec) &&
 		OpEqu(AudioCaptureParameters) &&
@@ -655,7 +865,7 @@ bool Pcsx2Config::GSOptions::OptionsAreEqual(const GSOptions& right) const
 		OpEqu(AudioCaptureBitrate) &&
 
 		OpEqu(Adapter) &&
-		
+
 		OpEqu(HWDumpDirectory) &&
 		OpEqu(SWDumpDirectory));
 }
@@ -672,10 +882,8 @@ bool Pcsx2Config::GSOptions::RestartOptionsAreEqual(const GSOptions& right) cons
 		   OpEqu(UseDebugDevice) &&
 		   OpEqu(UseBlitSwapChain) &&
 		   OpEqu(DisableShaderCache) &&
-		   OpEqu(DisableDualSourceBlend) &&
 		   OpEqu(DisableFramebufferFetch) &&
 		   OpEqu(DisableVertexShaderExpand) &&
-		   OpEqu(DisableThreadedPresentation) &&
 		   OpEqu(OverrideTextureBarriers) &&
 		   OpEqu(ExclusiveFullscreenControl);
 }
@@ -685,18 +893,18 @@ void Pcsx2Config::GSOptions::LoadSave(SettingsWrapper& wrap)
 	SettingsWrapSection("EmuCore/GS");
 
 #ifdef PCSX2_DEVBUILD
-	SettingsWrapEntry(SynchronousMTGS);
+	SettingsWrapBitBool(SynchronousMTGS);
 #endif
+
+	SettingsWrapBitBool(VsyncEnable);
+	SettingsWrapBitBool(DisableMailboxPresentation);
+	SettingsWrapBitBool(ExtendedUpscalingMultipliers);
+
 	SettingsWrapEntry(VsyncQueueSize);
 
-	SettingsWrapEntry(FrameLimitEnable);
-	wrap.EnumEntry(CURRENT_SETTINGS_SECTION, "VsyncEnable", VsyncEnable, NULL, VsyncEnable);
-
-	// LimitScalar is set at runtime.
 	SettingsWrapEntry(FramerateNTSC);
 	SettingsWrapEntry(FrameratePAL);
 
-	SettingsWrapBitBool(SyncToHostRefreshRate);
 	SettingsWrapEnumEx(AspectRatio, "AspectRatio", AspectRatioNames);
 	SettingsWrapEnumEx(FMVAspectRatioSwitch, "FMVAspectRatioSwitch", FMVAspectRatioSwitchNames);
 	SettingsWrapIntEnumEx(ScreenshotSize, "ScreenshotSize");
@@ -708,165 +916,151 @@ void Pcsx2Config::GSOptions::LoadSave(SettingsWrapper& wrap)
 	SettingsWrapEntryEx(Crop[2], "CropRight");
 	SettingsWrapEntryEx(Crop[3], "CropBottom");
 
-#define GSSettingInt(var) SettingsWrapBitfield(var)
-#define GSSettingIntEx(var, name) SettingsWrapBitfieldEx(var, name)
-#define GSSettingBool(var) SettingsWrapBitBool(var)
-#define GSSettingBoolEx(var, name) SettingsWrapBitBoolEx(var, name)
-#define GSSettingFloat(var) SettingsWrapEntry(var)
-#define GSSettingFloatEx(var, name) SettingsWrapEntryEx(var, name)
-#define GSSettingIntEnumEx(var, name) SettingsWrapIntEnumEx(var, name)
-#define GSSettingString(var) SettingsWrapEntry(var)
-#define GSSettingStringEx(var, name) SettingsWrapEntryEx(var, name)
-
 	// Unfortunately, because code in the GS still reads the setting by key instead of
 	// using these variables, we need to use the old names. Maybe post 2.0 we can change this.
-	GSSettingBoolEx(PCRTCAntiBlur, "pcrtc_antiblur");
-	GSSettingBoolEx(DisableInterlaceOffset, "disable_interlace_offset");
-	GSSettingBoolEx(PCRTCOffsets, "pcrtc_offsets");
-	GSSettingBoolEx(PCRTCOverscan, "pcrtc_overscan");
-	GSSettingBool(IntegerScaling);
-	GSSettingBool(UseDebugDevice);
-	GSSettingBool(UseBlitSwapChain);
-	GSSettingBool(DisableShaderCache);
-	GSSettingBool(DisableDualSourceBlend);
-	GSSettingBool(DisableFramebufferFetch);
-	GSSettingBool(DisableVertexShaderExpand);
-	GSSettingBool(DisableThreadedPresentation);
-	GSSettingBool(SkipDuplicateFrames);
-	GSSettingBool(OsdShowMessages);
-	GSSettingBool(OsdShowSpeed);
-	GSSettingBool(OsdShowFPS);
-	GSSettingBool(OsdShowCPU);
-	GSSettingBool(OsdShowGPU);
-	GSSettingBool(OsdShowResolution);
-	GSSettingBool(OsdShowGSStats);
-	GSSettingBool(OsdShowIndicators);
-	GSSettingBool(OsdShowSettings);
-	GSSettingBool(OsdShowInputs);
-	GSSettingBool(OsdShowFrameTimes);
+	SettingsWrapBitBoolEx(PCRTCAntiBlur, "pcrtc_antiblur");
+	SettingsWrapBitBoolEx(DisableInterlaceOffset, "disable_interlace_offset");
+	SettingsWrapBitBoolEx(PCRTCOffsets, "pcrtc_offsets");
+	SettingsWrapBitBoolEx(PCRTCOverscan, "pcrtc_overscan");
+	SettingsWrapBitBool(IntegerScaling);
+	SettingsWrapBitBool(UseDebugDevice);
+	SettingsWrapBitBool(UseBlitSwapChain);
+	SettingsWrapBitBool(DisableShaderCache);
+	SettingsWrapBitBool(DisableFramebufferFetch);
+	SettingsWrapBitBool(DisableVertexShaderExpand);
+	SettingsWrapBitBool(SkipDuplicateFrames);
+	SettingsWrapBitBool(OsdShowSpeed);
+	SettingsWrapBitBool(OsdShowFPS);
+	SettingsWrapBitBool(OsdShowVPS);
+	SettingsWrapBitBool(OsdShowCPU);
+	SettingsWrapBitBool(OsdShowGPU);
+	SettingsWrapBitBool(OsdShowResolution);
+	SettingsWrapBitBool(OsdShowGSStats);
+	SettingsWrapBitBool(OsdShowIndicators);
+	SettingsWrapBitBool(OsdShowSettings);
+	SettingsWrapBitBool(OsdShowInputs);
+	SettingsWrapBitBool(OsdShowFrameTimes);
+	SettingsWrapBitBool(OsdShowVersion);
+	SettingsWrapBitBool(OsdShowHardwareInfo);
+	SettingsWrapBitBool(OsdShowVideoCapture);
+	SettingsWrapBitBool(OsdShowInputRec);
 
-	GSSettingBool(HWSpinGPUForReadbacks);
-	GSSettingBool(HWSpinCPUForReadbacks);
-	GSSettingBoolEx(GPUPaletteConversion, "paltex");
-	GSSettingBoolEx(AutoFlushSW, "autoflush_sw");
-	GSSettingBoolEx(PreloadFrameWithGSData, "preload_frame_with_gs_data");
-	GSSettingBoolEx(Mipmap, "mipmap");
-	GSSettingBoolEx(ManualUserHacks, "UserHacks");
-	GSSettingBoolEx(UserHacks_AlignSpriteX, "UserHacks_align_sprite_X");
-	GSSettingIntEnumEx(UserHacks_AutoFlush, "UserHacks_AutoFlushLevel");
-	GSSettingBoolEx(UserHacks_CPUFBConversion, "UserHacks_CPU_FB_Conversion");
-	GSSettingBoolEx(UserHacks_ReadTCOnClose, "UserHacks_ReadTCOnClose");
-	GSSettingBoolEx(UserHacks_DisableDepthSupport, "UserHacks_DisableDepthSupport");
-	GSSettingBoolEx(UserHacks_DisablePartialInvalidation, "UserHacks_DisablePartialInvalidation");
-	GSSettingBoolEx(UserHacks_DisableSafeFeatures, "UserHacks_Disable_Safe_Features");
-	GSSettingBoolEx(UserHacks_DisableRenderFixes, "UserHacks_DisableRenderFixes");
-	GSSettingBoolEx(UserHacks_MergePPSprite, "UserHacks_merge_pp_sprite");
-	GSSettingBoolEx(UserHacks_WildHack, "UserHacks_WildHack");
-	GSSettingIntEnumEx(UserHacks_BilinearHack, "UserHacks_BilinearHack");
-	GSSettingBoolEx(UserHacks_NativePaletteDraw, "UserHacks_NativePaletteDraw");
-	GSSettingIntEnumEx(UserHacks_TextureInsideRt, "UserHacks_TextureInsideRt");
-	GSSettingBoolEx(UserHacks_TargetPartialInvalidation, "UserHacks_TargetPartialInvalidation");
-	GSSettingBoolEx(UserHacks_EstimateTextureRegion, "UserHacks_EstimateTextureRegion");
-	GSSettingBoolEx(FXAA, "fxaa");
-	GSSettingBool(ShadeBoost);
-	GSSettingBoolEx(DumpGSData, "dump");
-	GSSettingBoolEx(SaveRT, "save");
-	GSSettingBoolEx(SaveFrame, "savef");
-	GSSettingBoolEx(SaveTexture, "savet");
-	GSSettingBoolEx(SaveDepth, "savez");
-	GSSettingBool(DumpReplaceableTextures);
-	GSSettingBool(DumpReplaceableMipmaps);
-	GSSettingBool(DumpTexturesWithFMVActive);
-	GSSettingBool(DumpDirectTextures);
-	GSSettingBool(DumpPaletteTextures);
-	GSSettingBool(LoadTextureReplacements);
-	GSSettingBool(LoadTextureReplacementsAsync);
-	GSSettingBool(PrecacheTextureReplacements);
-	GSSettingBool(EnableVideoCapture);
-	GSSettingBool(EnableVideoCaptureParameters);
-	GSSettingBool(VideoCaptureAutoResolution);
-	GSSettingBool(EnableAudioCapture);
-	GSSettingBool(EnableAudioCaptureParameters);
+	SettingsWrapBitBool(HWSpinGPUForReadbacks);
+	SettingsWrapBitBool(HWSpinCPUForReadbacks);
+	SettingsWrapBitBoolEx(GPUPaletteConversion, "paltex");
+	SettingsWrapBitBoolEx(AutoFlushSW, "autoflush_sw");
+	SettingsWrapBitBoolEx(PreloadFrameWithGSData, "preload_frame_with_gs_data");
+	SettingsWrapBitBoolEx(Mipmap, "mipmap");
+	SettingsWrapBitBoolEx(ManualUserHacks, "UserHacks");
+	SettingsWrapBitBoolEx(UserHacks_AlignSpriteX, "UserHacks_align_sprite_X");
+	SettingsWrapIntEnumEx(UserHacks_AutoFlush, "UserHacks_AutoFlushLevel");
+	SettingsWrapBitBoolEx(UserHacks_CPUFBConversion, "UserHacks_CPU_FB_Conversion");
+	SettingsWrapBitBoolEx(UserHacks_ReadTCOnClose, "UserHacks_ReadTCOnClose");
+	SettingsWrapBitBoolEx(UserHacks_DisableDepthSupport, "UserHacks_DisableDepthSupport");
+	SettingsWrapBitBoolEx(UserHacks_DisablePartialInvalidation, "UserHacks_DisablePartialInvalidation");
+	SettingsWrapBitBoolEx(UserHacks_DisableSafeFeatures, "UserHacks_Disable_Safe_Features");
+	SettingsWrapBitBoolEx(UserHacks_DisableRenderFixes, "UserHacks_DisableRenderFixes");
+	SettingsWrapBitBoolEx(UserHacks_MergePPSprite, "UserHacks_merge_pp_sprite");
+	SettingsWrapBitBoolEx(UserHacks_ForceEvenSpritePosition, "UserHacks_ForceEvenSpritePosition");
+	SettingsWrapIntEnumEx(UserHacks_BilinearHack, "UserHacks_BilinearHack");
+	SettingsWrapBitBoolEx(UserHacks_NativePaletteDraw, "UserHacks_NativePaletteDraw");
+	SettingsWrapIntEnumEx(UserHacks_TextureInsideRt, "UserHacks_TextureInsideRt");
+	SettingsWrapBitBoolEx(UserHacks_EstimateTextureRegion, "UserHacks_EstimateTextureRegion");
+	SettingsWrapBitBoolEx(FXAA, "fxaa");
+	SettingsWrapBitBool(ShadeBoost);
+	SettingsWrapBitBoolEx(DumpGSData, "dump");
+	SettingsWrapBitBoolEx(SaveRT, "save");
+	SettingsWrapBitBoolEx(SaveFrame, "savef");
+	SettingsWrapBitBoolEx(SaveTexture, "savet");
+	SettingsWrapBitBoolEx(SaveDepth, "savez");
+	SettingsWrapBitBoolEx(SaveAlpha, "savea");
+	SettingsWrapBitBoolEx(SaveInfo, "savei");
+	SettingsWrapBitBool(DumpReplaceableTextures);
+	SettingsWrapBitBool(DumpReplaceableMipmaps);
+	SettingsWrapBitBool(DumpTexturesWithFMVActive);
+	SettingsWrapBitBool(DumpDirectTextures);
+	SettingsWrapBitBool(DumpPaletteTextures);
+	SettingsWrapBitBool(LoadTextureReplacements);
+	SettingsWrapBitBool(LoadTextureReplacementsAsync);
+	SettingsWrapBitBool(PrecacheTextureReplacements);
+	SettingsWrapBitBool(EnableVideoCapture);
+	SettingsWrapBitBool(EnableVideoCaptureParameters);
+	SettingsWrapBitBool(VideoCaptureAutoResolution);
+	SettingsWrapBitBool(EnableAudioCapture);
+	SettingsWrapBitBool(EnableAudioCaptureParameters);
 
-	GSSettingIntEnumEx(LinearPresent, "linear_present_mode");
-	GSSettingIntEnumEx(InterlaceMode, "deinterlace_mode");
+	SettingsWrapIntEnumEx(LinearPresent, "linear_present_mode");
+	SettingsWrapIntEnumEx(InterlaceMode, "deinterlace_mode");
 
-	GSSettingFloat(OsdScale);
+	SettingsWrapEntry(OsdScale);
+	SettingsWrapIntEnumEx(OsdMessagesPos, "OsdMessagesPos");
+	SettingsWrapIntEnumEx(OsdPerformancePos, "OsdPerformancePos");
 
-	GSSettingIntEnumEx(Renderer, "Renderer");
-	GSSettingFloatEx(UpscaleMultiplier, "upscale_multiplier");
+	SettingsWrapIntEnumEx(Renderer, "Renderer");
+	SettingsWrapEntryEx(UpscaleMultiplier, "upscale_multiplier");
 
-	// ~51x would the upper bound here for 32768x32768 textures, but you'll run out VRAM long before then.
-	UpscaleMultiplier = std::clamp(UpscaleMultiplier, 0.5f, 50.0f);
-
-	GSSettingIntEnumEx(HWMipmap, "mipmap_hw");
-	GSSettingIntEnumEx(AccurateBlendingUnit, "accurate_blending_unit");
-	GSSettingIntEnumEx(TextureFiltering, "filter");
-	GSSettingIntEnumEx(TexturePreloading, "texture_preloading");
-	GSSettingIntEnumEx(GSDumpCompression, "GSDumpCompression");
-	GSSettingIntEnumEx(HWDownloadMode, "HWDownloadMode");
-	GSSettingIntEnumEx(CASMode, "CASMode");
-	GSSettingIntEx(CAS_Sharpness, "CASSharpness");
-	GSSettingIntEx(Dithering, "dithering_ps2");
-	GSSettingIntEx(MaxAnisotropy, "MaxAnisotropy");
-	GSSettingIntEx(SWExtraThreads, "extrathreads");
-	GSSettingIntEx(SWExtraThreadsHeight, "extrathreads_height");
-	GSSettingIntEx(TVShader, "TVShader");
-	GSSettingIntEx(SkipDrawStart, "UserHacks_SkipDraw_Start");
-	GSSettingIntEx(SkipDrawEnd, "UserHacks_SkipDraw_End");
+	SettingsWrapBitBoolEx(HWMipmap, "hw_mipmap");
+	SettingsWrapIntEnumEx(AccurateBlendingUnit, "accurate_blending_unit");
+	SettingsWrapIntEnumEx(TextureFiltering, "filter");
+	SettingsWrapIntEnumEx(TexturePreloading, "texture_preloading");
+	SettingsWrapIntEnumEx(GSDumpCompression, "GSDumpCompression");
+	SettingsWrapIntEnumEx(HWDownloadMode, "HWDownloadMode");
+	SettingsWrapIntEnumEx(CASMode, "CASMode");
+	SettingsWrapBitfieldEx(CAS_Sharpness, "CASSharpness");
+	SettingsWrapBitfieldEx(Dithering, "dithering_ps2");
+	SettingsWrapBitfieldEx(MaxAnisotropy, "MaxAnisotropy");
+	SettingsWrapBitfieldEx(SWExtraThreads, "extrathreads");
+	SettingsWrapBitfieldEx(SWExtraThreadsHeight, "extrathreads_height");
+	SettingsWrapBitfieldEx(TVShader, "TVShader");
+	SettingsWrapBitfieldEx(SkipDrawStart, "UserHacks_SkipDraw_Start");
+	SettingsWrapBitfieldEx(SkipDrawEnd, "UserHacks_SkipDraw_End");
 	SkipDrawEnd = std::max(SkipDrawStart, SkipDrawEnd);
 
-	GSSettingIntEx(UserHacks_HalfBottomOverride, "UserHacks_Half_Bottom_Override");
-	GSSettingIntEx(UserHacks_HalfPixelOffset, "UserHacks_HalfPixelOffset");
-	GSSettingIntEx(UserHacks_RoundSprite, "UserHacks_round_sprite_offset");
-	GSSettingIntEx(UserHacks_TCOffsetX, "UserHacks_TCOffsetX");
-	GSSettingIntEx(UserHacks_TCOffsetY, "UserHacks_TCOffsetY");
-	GSSettingIntEx(UserHacks_CPUSpriteRenderBW, "UserHacks_CPUSpriteRenderBW");
-	GSSettingIntEx(UserHacks_CPUSpriteRenderLevel, "UserHacks_CPUSpriteRenderLevel");
-	GSSettingIntEx(UserHacks_CPUCLUTRender, "UserHacks_CPUCLUTRender");
-	GSSettingIntEnumEx(UserHacks_GPUTargetCLUTMode, "UserHacks_GPUTargetCLUTMode");
-	GSSettingIntEnumEx(TriFilter, "TriFilter");
-	GSSettingIntEx(OverrideTextureBarriers, "OverrideTextureBarriers");
+	SettingsWrapIntEnumEx(UserHacks_HalfPixelOffset, "UserHacks_HalfPixelOffset");
+	SettingsWrapBitfieldEx(UserHacks_RoundSprite, "UserHacks_round_sprite_offset");
+	SettingsWrapIntEnumEx(UserHacks_NativeScaling, "UserHacks_native_scaling");
+	SettingsWrapBitfieldEx(UserHacks_TCOffsetX, "UserHacks_TCOffsetX");
+	SettingsWrapBitfieldEx(UserHacks_TCOffsetY, "UserHacks_TCOffsetY");
+	SettingsWrapBitfieldEx(UserHacks_CPUSpriteRenderBW, "UserHacks_CPUSpriteRenderBW");
+	SettingsWrapBitfieldEx(UserHacks_CPUSpriteRenderLevel, "UserHacks_CPUSpriteRenderLevel");
+	SettingsWrapBitfieldEx(UserHacks_CPUCLUTRender, "UserHacks_CPUCLUTRender");
+	SettingsWrapIntEnumEx(UserHacks_GPUTargetCLUTMode, "UserHacks_GPUTargetCLUTMode");
+	SettingsWrapIntEnumEx(TriFilter, "TriFilter");
+	SettingsWrapBitfieldEx(OverrideTextureBarriers, "OverrideTextureBarriers");
 
-	GSSettingInt(ShadeBoost_Brightness);
-	GSSettingInt(ShadeBoost_Contrast);
-	GSSettingInt(ShadeBoost_Saturation);
-	GSSettingInt(ExclusiveFullscreenControl);
-	GSSettingIntEx(PNGCompressionLevel, "png_compression_level");
-	GSSettingIntEx(SaveN, "saven");
-	GSSettingIntEx(SaveL, "savel");
+	SettingsWrapBitfield(ShadeBoost_Brightness);
+	SettingsWrapBitfield(ShadeBoost_Contrast);
+	SettingsWrapBitfield(ShadeBoost_Saturation);
+	SettingsWrapBitfield(ExclusiveFullscreenControl);
+	SettingsWrapBitfieldEx(PNGCompressionLevel, "png_compression_level");
+	SettingsWrapBitfieldEx(SaveN, "saven");
+	SettingsWrapBitfieldEx(SaveL, "savel");
+	SettingsWrapBitfieldEx(SaveB, "saveb");
+	SettingsWrapBitfieldEx(SaveNF, "savenf");
+	SettingsWrapBitfieldEx(SaveLF, "savelf");
+	SettingsWrapBitfieldEx(SaveBF, "savebf");
 
-	GSSettingStringEx(CaptureContainer, "CaptureContainer");
-	GSSettingStringEx(VideoCaptureCodec, "VideoCaptureCodec");
-	GSSettingStringEx(VideoCaptureParameters, "VideoCaptureParameters");
-	GSSettingStringEx(AudioCaptureCodec, "AudioCaptureCodec");
-	GSSettingStringEx(AudioCaptureParameters, "AudioCaptureParameters");
-	GSSettingIntEx(VideoCaptureBitrate, "VideoCaptureBitrate");
-	GSSettingIntEx(VideoCaptureWidth, "VideoCaptureWidth");
-	GSSettingIntEx(VideoCaptureHeight, "VideoCaptureHeight");
-	GSSettingIntEx(AudioCaptureBitrate, "AudioCaptureBitrate");
+	SettingsWrapEntryEx(CaptureContainer, "CaptureContainer");
+	SettingsWrapEntryEx(VideoCaptureCodec, "VideoCaptureCodec");
+	SettingsWrapEntryEx(VideoCaptureFormat, "VideoCaptureFormat");
+	SettingsWrapEntryEx(VideoCaptureParameters, "VideoCaptureParameters");
+	SettingsWrapEntryEx(AudioCaptureCodec, "AudioCaptureCodec");
+	SettingsWrapEntryEx(AudioCaptureParameters, "AudioCaptureParameters");
+	SettingsWrapBitfieldEx(VideoCaptureBitrate, "VideoCaptureBitrate");
+	SettingsWrapBitfieldEx(VideoCaptureWidth, "VideoCaptureWidth");
+	SettingsWrapBitfieldEx(VideoCaptureHeight, "VideoCaptureHeight");
+	SettingsWrapBitfieldEx(AudioCaptureBitrate, "AudioCaptureBitrate");
 
-	GSSettingString(Adapter);
-	GSSettingString(HWDumpDirectory);
+	SettingsWrapEntry(Adapter);
+	SettingsWrapEntry(HWDumpDirectory);
 	if (!HWDumpDirectory.empty() && !Path::IsAbsolute(HWDumpDirectory))
 		HWDumpDirectory = Path::Combine(EmuFolders::DataRoot, HWDumpDirectory);
-	GSSettingString(SWDumpDirectory);
+	SettingsWrapEntry(SWDumpDirectory);
 	if (!SWDumpDirectory.empty() && !Path::IsAbsolute(SWDumpDirectory))
 		SWDumpDirectory = Path::Combine(EmuFolders::DataRoot, SWDumpDirectory);
 
-#undef GSSettingInt
-#undef GSSettingIntEx
-#undef GSSettingBool
-#undef GSSettingBoolEx
-#undef GSSettingFloat
-#undef GSSettingEnumEx
-#undef GSSettingIntEnumEx
-#undef GSSettingString
-#undef GSSettingStringEx
-
 	// Sanity check: don't dump a bunch of crap in the current working directory.
-	const std::string& dump_dir = UseHardwareRenderer() ? HWDumpDirectory : SWDumpDirectory;
-	if (DumpGSData && dump_dir.empty())
+	if (DumpGSData && (HWDumpDirectory.empty() || SWDumpDirectory.empty()))
 	{
 		Console.Error("Draw dumping is enabled but directory is unconfigured, please set one.");
 		DumpGSData = false;
@@ -880,21 +1074,21 @@ void Pcsx2Config::GSOptions::MaskUserHacks()
 
 	UserHacks_AlignSpriteX = false;
 	UserHacks_MergePPSprite = false;
-	UserHacks_WildHack = false;
+	UserHacks_ForceEvenSpritePosition = false;
 	UserHacks_NativePaletteDraw = false;
 	UserHacks_DisableSafeFeatures = false;
 	UserHacks_DisableRenderFixes = false;
-	UserHacks_HalfBottomOverride = -1;
-	UserHacks_HalfPixelOffset = 0;
+	UserHacks_HalfPixelOffset = GSHalfPixelOffset::Off;
 	UserHacks_RoundSprite = 0;
+	UserHacks_NativeScaling = GSNativeScaling::Off;
 	UserHacks_AutoFlush = GSHWAutoFlushLevel::Disabled;
+	GPUPaletteConversion = false;
 	PreloadFrameWithGSData = false;
 	UserHacks_DisablePartialInvalidation = false;
 	UserHacks_DisableDepthSupport = false;
 	UserHacks_CPUFBConversion = false;
 	UserHacks_ReadTCOnClose = false;
 	UserHacks_TextureInsideRt = GSTextureInRtMode::Disabled;
-	UserHacks_TargetPartialInvalidation = false;
 	UserHacks_EstimateTextureRegion = false;
 	UserHacks_TCOffsetX = 0;
 	UserHacks_TCOffsetY = 0;
@@ -913,11 +1107,12 @@ void Pcsx2Config::GSOptions::MaskUpscalingHacks()
 		return;
 	UserHacks_AlignSpriteX = false;
 	UserHacks_MergePPSprite = false;
-	UserHacks_WildHack = false;
+	UserHacks_ForceEvenSpritePosition = false;
 	UserHacks_BilinearHack = GSBilinearDirtyMode::Automatic;
 	UserHacks_NativePaletteDraw = false;
-	UserHacks_HalfPixelOffset = 0;
+	UserHacks_HalfPixelOffset = GSHalfPixelOffset::Off;
 	UserHacks_RoundSprite = 0;
+	UserHacks_NativeScaling = GSNativeScaling::Off;
 	UserHacks_TCOffsetX = 0;
 	UserHacks_TCOffsetY = 0;
 }
@@ -927,10 +1122,49 @@ bool Pcsx2Config::GSOptions::UseHardwareRenderer() const
 	return (Renderer != GSRendererType::Null && Renderer != GSRendererType::SW);
 }
 
+bool Pcsx2Config::GSOptions::ShouldDump(int draw, int frame) const
+{
+	return DumpGSData &&
+		(SaveN <= draw) && ((SaveL < 0) || (draw < SaveN + SaveL)) && (draw % SaveB == 0) &&
+		(SaveNF <= frame) && ((SaveLF < 0) || (frame < SaveNF + SaveLF)) && (frame % SaveBF == 0);
+}
+
+static constexpr const std::array s_spu2_sync_mode_names = {
+	"Disabled",
+	"TimeStretch",
+};
+static constexpr const std::array s_spu2_sync_mode_display_names = {
+	TRANSLATE_NOOP("Pcsx2Config", "Disabled (Noisy)"),
+	TRANSLATE_NOOP("Pcsx2Config", "TimeStretch (Recommended)"),
+};
+
+const char* Pcsx2Config::SPU2Options::GetSyncModeName(SPU2SyncMode mode)
+{
+	return (static_cast<size_t>(mode) < s_spu2_sync_mode_names.size()) ? s_spu2_sync_mode_names[static_cast<size_t>(mode)] : "";
+}
+
+const char* Pcsx2Config::SPU2Options::GetSyncModeDisplayName(SPU2SyncMode mode)
+{
+	return (static_cast<size_t>(mode) < s_spu2_sync_mode_display_names.size()) ?
+			   Host::TranslateToCString("Pcsx2Config", s_spu2_sync_mode_display_names[static_cast<size_t>(mode)]) :
+			   "";
+}
+
+std::optional<Pcsx2Config::SPU2Options::SPU2SyncMode> Pcsx2Config::SPU2Options::ParseSyncMode(const char* name)
+{
+	for (u8 i = 0; i < static_cast<u8>(SPU2SyncMode::Count); i++)
+	{
+		if (std::strcmp(name, s_spu2_sync_mode_names[i]) == 0)
+			return static_cast<SPU2SyncMode>(i);
+	}
+
+	return std::nullopt;
+}
+
+
 Pcsx2Config::SPU2Options::SPU2Options()
 {
 	bitset = 0;
-	OutputModule = "cubeb";
 }
 
 void Pcsx2Config::SPU2Options::LoadSave(SettingsWrapper& wrap)
@@ -944,7 +1178,6 @@ void Pcsx2Config::SPU2Options::LoadSave(SettingsWrapper& wrap)
 		SettingsWrapBitBoolEx(MsgVoiceOff, "Show_Messages_Voice_Off");
 		SettingsWrapBitBoolEx(MsgDMA, "Show_Messages_DMA_Transfer");
 		SettingsWrapBitBoolEx(MsgAutoDMA, "Show_Messages_AutoDMA");
-		SettingsWrapBitBoolEx(MsgOverruns, "Show_Messages_Overruns");
 		SettingsWrapBitBoolEx(MsgCache, "Show_Messages_CacheStats");
 
 		SettingsWrapBitBoolEx(AccessLog, "Log_Register_Access");
@@ -963,7 +1196,6 @@ void Pcsx2Config::SPU2Options::LoadSave(SettingsWrapper& wrap)
 			MsgVoiceOff = false;
 			MsgDMA = false;
 			MsgAutoDMA = false;
-			MsgOverruns = false;
 			MsgCache = false;
 			AccessLog = false;
 			DMALog = false;
@@ -973,27 +1205,35 @@ void Pcsx2Config::SPU2Options::LoadSave(SettingsWrapper& wrap)
 			RegDump = false;
 		}
 	}
-	{
-		SettingsWrapSection("SPU2/Mixing");
-
-		SettingsWrapEntry(FinalVolume);
-	}
 
 	{
 		SettingsWrapSection("SPU2/Output");
-
-		SettingsWrapEntry(OutputModule);
-		SettingsWrapEntry(BackendName);
+		SettingsWrapEntry(OutputVolume);
+		SettingsWrapEntry(FastForwardVolume);
+		SettingsWrapEntry(OutputMuted);
+		SettingsWrapParsedEnum(Backend, "Backend", &AudioStream::ParseBackendName, &AudioStream::GetBackendName);
+		SettingsWrapParsedEnum(SyncMode, "SyncMode", &ParseSyncMode, &GetSyncModeName);
+		SettingsWrapEntry(DriverName);
 		SettingsWrapEntry(DeviceName);
-		SettingsWrapEntry(Latency);
-		SettingsWrapEntry(OutputLatency);
-		SettingsWrapBitBool(OutputLatencyMinimal);
-		SynchMode = static_cast<SynchronizationMode>(wrap.EntryBitfield(CURRENT_SETTINGS_SECTION, "SynchMode", static_cast<int>(SynchMode), static_cast<int>(SynchMode)));
-		SettingsWrapEntry(SpeakerConfiguration);
-		SettingsWrapEntry(DplDecodingLevel);
+		StreamParameters.LoadSave(wrap, CURRENT_SETTINGS_SECTION);
 	}
+}
 
-	// clampy clamp
+bool Pcsx2Config::SPU2Options::operator!=(const SPU2Options& right) const
+{
+	return !this->operator==(right);
+}
+
+bool Pcsx2Config::SPU2Options::operator==(const SPU2Options& right) const
+{
+	return OpEqu(bitset) &&
+		   OpEqu(OutputVolume) &&
+		   OpEqu(FastForwardVolume) &&
+		   OpEqu(OutputMuted) &&
+		   OpEqu(Backend) &&
+		   OpEqu(StreamParameters) &&
+		   OpEqu(DriverName) &&
+		   OpEqu(DeviceName);
 }
 
 const char* Pcsx2Config::DEV9Options::NetApiNames[] = {
@@ -1022,6 +1262,7 @@ void Pcsx2Config::DEV9Options::LoadSave(SettingsWrapper& wrap)
 		SettingsWrapEntry(EthEnable);
 		SettingsWrapEnumEx(EthApi, "EthApi", NetApiNames);
 		SettingsWrapEntry(EthDevice);
+		SettingsWrapEntry(EthLogDHCP);
 		SettingsWrapEntry(EthLogDNS);
 
 		SettingsWrapEntry(InterceptDHCP);
@@ -1102,8 +1343,37 @@ void Pcsx2Config::DEV9Options::LoadSave(SettingsWrapper& wrap)
 		SettingsWrapSection("DEV9/Hdd");
 		SettingsWrapEntry(HddEnable);
 		SettingsWrapEntry(HddFile);
-		SettingsWrapEntry(HddSizeSectors);
 	}
+}
+
+bool Pcsx2Config::DEV9Options::operator!=(const DEV9Options& right) const
+{
+	return !this->operator==(right);
+}
+
+bool Pcsx2Config::DEV9Options::operator==(const DEV9Options& right) const
+{
+	return OpEqu(EthEnable) &&
+		   OpEqu(EthApi) &&
+		   OpEqu(EthDevice) &&
+		   OpEqu(EthLogDHCP) &&
+		   OpEqu(EthLogDNS) &&
+
+		   OpEqu(InterceptDHCP) &&
+		   (*(int*)PS2IP == *(int*)right.PS2IP) &&
+		   (*(int*)Gateway == *(int*)right.Gateway) &&
+		   (*(int*)DNS1 == *(int*)right.DNS1) &&
+		   (*(int*)DNS2 == *(int*)right.DNS2) &&
+
+		   OpEqu(AutoMask) &&
+		   OpEqu(AutoGateway) &&
+		   OpEqu(ModeDNS1) &&
+		   OpEqu(ModeDNS2) &&
+
+		   OpEqu(EthHosts) &&
+
+		   OpEqu(HddEnable) &&
+		   OpEqu(HddFile);
 }
 
 void Pcsx2Config::DEV9Options::LoadIPHelper(u8* field, const std::string& setting)
@@ -1118,30 +1388,42 @@ std::string Pcsx2Config::DEV9Options::SaveIPHelper(u8* field)
 	return StringUtil::StdStringFromFormat("%u.%u.%u.%u", field[0], field[1], field[2], field[3]);
 }
 
-static const char* const tbl_GamefixNames[] =
+bool Pcsx2Config::DEV9Options::HostEntry::operator==(const HostEntry& right) const
 {
-	"FpuMul",
-	"FpuNegDiv",
-	"GoemonTlb",
-	"SoftwareRendererFMV",
-	"SkipMPEG",
-	"OPHFlag",
-	"EETiming",
-	"InstantDMA",
-	"DMABusy",
-	"GIFFIFO",
-	"VIFFIFO",
-	"VIF1Stall",
-	"VuAddSub",
-	"Ibit",
-	"VUSync",
-	"VUOverflow",
-	"XGKick",
-	"BlitInternalFPS",
-	"FullVU0Sync",
+	return OpEqu(Url) &&
+		   OpEqu(Desc) &&
+		   (*(int*)Address == *(int*)right.Address) &&
+		   OpEqu(Enabled);
+}
+
+bool Pcsx2Config::DEV9Options::HostEntry::operator!=(const HostEntry& right) const
+{
+	return !this->operator==(right);
+}
+
+static const char* const tbl_GamefixNames[] =
+	{
+		"FpuMul",
+		"GoemonTlb",
+		"SoftwareRendererFMV",
+		"SkipMPEG",
+		"OPHFlag",
+		"EETiming",
+		"InstantDMA",
+		"DMABusy",
+		"GIFFIFO",
+		"VIFFIFO",
+		"VIF1Stall",
+		"VuAddSub",
+		"Ibit",
+		"VUSync",
+		"VUOverflow",
+		"XGKick",
+		"BlitInternalFPS",
+		"FullVU0Sync",
 };
 
-const char* EnumToString(GamefixId id)
+const char* Pcsx2Config::GamefixOptions::GetGameFixName(GamefixId id)
 {
 	return tbl_GamefixNames[id];
 }
@@ -1160,12 +1442,11 @@ Pcsx2Config::GamefixOptions& Pcsx2Config::GamefixOptions::DisableAll()
 
 void Pcsx2Config::GamefixOptions::Set(GamefixId id, bool enabled)
 {
-	pxAssert(EnumIsValid(id));
 	switch (id)
 	{
+			// clang-format off
 		case Fix_VuAddSub:            VuAddSubHack            = enabled; break;
 		case Fix_FpuMultiply:         FpuMulHack              = enabled; break;
-		case Fix_FpuNegDiv:           FpuNegDivHack           = enabled; break;
 		case Fix_XGKick:              XgKickHack              = enabled; break;
 		case Fix_EETiming:            EETimingHack            = enabled; break;
 		case Fix_InstantDMA:          InstantDMAHack          = enabled; break;
@@ -1182,18 +1463,28 @@ void Pcsx2Config::GamefixOptions::Set(GamefixId id, bool enabled)
 		case Fix_VUOverflow:          VUOverflowHack          = enabled; break;
 		case Fix_BlitInternalFPS:     BlitInternalFPSHack     = enabled; break;
 		case Fix_FullVU0Sync:         FullVU0SyncHack         = enabled; break;
-		jNO_DEFAULT;
+		default:                                                         break;
+			// clang-format on
 	}
+}
+
+bool Pcsx2Config::GamefixOptions::operator!=(const GamefixOptions& right) const
+{
+	return !OpEqu(bitset);
+}
+
+bool Pcsx2Config::GamefixOptions::operator==(const GamefixOptions& right) const
+{
+	return OpEqu(bitset);
 }
 
 bool Pcsx2Config::GamefixOptions::Get(GamefixId id) const
 {
-	pxAssert(EnumIsValid(id));
 	switch (id)
 	{
+			// clang-format off
 		case Fix_VuAddSub:            return VuAddSubHack;
 		case Fix_FpuMultiply:         return FpuMulHack;
-		case Fix_FpuNegDiv:           return FpuNegDivHack;
 		case Fix_XGKick:              return XgKickHack;
 		case Fix_EETiming:            return EETimingHack;
 		case Fix_InstantDMA:          return InstantDMAHack;
@@ -1210,7 +1501,8 @@ bool Pcsx2Config::GamefixOptions::Get(GamefixId id) const
 		case Fix_VUOverflow:          return VUOverflowHack;
 		case Fix_BlitInternalFPS:     return BlitInternalFPSHack;
 		case Fix_FullVU0Sync:         return FullVU0SyncHack;
-		jNO_DEFAULT;
+		default:                      return false;
+			// clang-format on
 	}
 	return false; // unreachable, but we still need to suppress warnings >_<
 }
@@ -1221,7 +1513,6 @@ void Pcsx2Config::GamefixOptions::LoadSave(SettingsWrapper& wrap)
 
 	SettingsWrapBitBool(VuAddSubHack);
 	SettingsWrapBitBool(FpuMulHack);
-	SettingsWrapBitBool(FpuNegDivHack);
 	SettingsWrapBitBool(XgKickHack);
 	SettingsWrapBitBool(EETimingHack);
 	SettingsWrapBitBool(InstantDMAHack);
@@ -1239,7 +1530,6 @@ void Pcsx2Config::GamefixOptions::LoadSave(SettingsWrapper& wrap)
 	SettingsWrapBitBool(BlitInternalFPSHack);
 	SettingsWrapBitBool(FullVU0SyncHack);
 }
-
 
 Pcsx2Config::DebugOptions::DebugOptions()
 {
@@ -1265,6 +1555,125 @@ void Pcsx2Config::DebugOptions::LoadSave(SettingsWrapper& wrap)
 	SettingsWrapBitfield(MemoryViewBytesPerRow);
 }
 
+bool Pcsx2Config::DebugOptions::operator!=(const DebugOptions& right) const
+{
+	return !this->operator==(right);
+}
+
+bool Pcsx2Config::DebugOptions::operator==(const DebugOptions& right) const
+{
+	return OpEqu(bitset) &&
+		   OpEqu(FontWidth) &&
+		   OpEqu(FontHeight) &&
+		   OpEqu(WindowWidth) &&
+		   OpEqu(WindowHeight) &&
+		   OpEqu(MemoryViewBytesPerRow);
+}
+
+const char* Pcsx2Config::DebugAnalysisOptions::RunConditionNames[] = {
+	"Always",
+	"If Debugger Is Open",
+	"Never",
+	nullptr,
+};
+
+const char* Pcsx2Config::DebugAnalysisOptions::FunctionScanModeNames[] = {
+	"Scan From ELF",
+	"Scan From Memory",
+	"Skip",
+	nullptr,
+};
+
+void Pcsx2Config::DebugAnalysisOptions::LoadSave(SettingsWrapper& wrap)
+{
+	{
+		SettingsWrapSection("Debugger/Analysis");
+
+		SettingsWrapEnumEx(RunCondition, "RunCondition", RunConditionNames);
+		SettingsWrapBitBool(GenerateSymbolsForIRXExports);
+
+		SettingsWrapBitBool(AutomaticallySelectSymbolsToClear);
+
+		SettingsWrapBitBool(ImportSymbolsFromELF);
+		SettingsWrapBitBool(DemangleSymbols);
+		SettingsWrapBitBool(DemangleParameters);
+
+		SettingsWrapEnumEx(FunctionScanMode, "FunctionScanMode", FunctionScanModeNames);
+		SettingsWrapBitBool(CustomFunctionScanRange);
+		SettingsWrapEntry(FunctionScanStartAddress);
+		SettingsWrapEntry(FunctionScanEndAddress);
+
+		SettingsWrapBitBool(GenerateFunctionHashes);
+	}
+
+	int symbolSourceCount = static_cast<int>(SymbolSources.size());
+	{
+		SettingsWrapSection("Debugger/Analysis/SymbolSources");
+		SettingsWrapEntryEx(symbolSourceCount, "Count");
+	}
+
+	for (int i = 0; i < symbolSourceCount; i++)
+	{
+		std::string section = "Debugger/Analysis/SymbolSources/" + std::to_string(i);
+		SettingsWrapSection(section.c_str());
+
+		DebugSymbolSource Source;
+		if (wrap.IsSaving())
+			Source = SymbolSources[i];
+
+		SettingsWrapEntryEx(Source.Name, "Name");
+		SettingsWrapBitBoolEx(Source.ClearDuringAnalysis, "ClearDuringAnalysis");
+
+		if (wrap.IsLoading())
+			SymbolSources.emplace_back(std::move(Source));
+	}
+
+	int extraSymbolFileCount = static_cast<int>(ExtraSymbolFiles.size());
+	{
+		SettingsWrapSection("Debugger/Analysis/ExtraSymbolFiles");
+		SettingsWrapEntryEx(extraSymbolFileCount, "Count");
+	}
+
+	for (int i = 0; i < extraSymbolFileCount; i++)
+	{
+		std::string section = "Debugger/Analysis/ExtraSymbolFiles/" + std::to_string(i);
+		SettingsWrapSection(section.c_str());
+
+		DebugExtraSymbolFile file;
+		if (wrap.IsSaving())
+			file = ExtraSymbolFiles[i];
+
+		SettingsWrapEntryEx(file.Path, "Path");
+		SettingsWrapEntryEx(file.BaseAddress, "BaseAddress");
+		SettingsWrapEntryEx(file.Condition, "Condition");
+
+		if (wrap.IsLoading())
+			ExtraSymbolFiles.emplace_back(std::move(file));
+	}
+}
+
+Pcsx2Config::SavestateOptions::SavestateOptions()
+{
+}
+
+void Pcsx2Config::SavestateOptions::LoadSave(SettingsWrapper& wrap)
+{
+	SettingsWrapSection("EmuCore");
+
+	SettingsWrapIntEnumEx(CompressionType, "SavestateCompressionType");
+	SettingsWrapIntEnumEx(CompressionRatio, "SavestateCompressionRatio");
+}
+
+bool Pcsx2Config::SavestateOptions::operator!=(const SavestateOptions& right) const
+{
+	return !this->operator==(right);
+}
+
+bool Pcsx2Config::SavestateOptions::operator==(const SavestateOptions& right) const
+{
+	return OpEqu(CompressionType) && OpEqu(CompressionRatio);
+};
+
 Pcsx2Config::FilenameOptions::FilenameOptions()
 {
 }
@@ -1276,7 +1685,24 @@ void Pcsx2Config::FilenameOptions::LoadSave(SettingsWrapper& wrap)
 	wrap.Entry(CURRENT_SETTINGS_SECTION, "BIOS", Bios, Bios);
 }
 
-void Pcsx2Config::FramerateOptions::SanityCheck()
+bool Pcsx2Config::FilenameOptions::operator!=(const FilenameOptions& right) const
+{
+	return !this->operator==(right);
+}
+
+bool Pcsx2Config::FilenameOptions::operator==(const FilenameOptions& right) const
+{
+	return OpEqu(Bios);
+}
+
+Pcsx2Config::EmulationSpeedOptions::EmulationSpeedOptions()
+{
+	bitset = 0;
+
+	SyncToHostRefreshRate = false;
+}
+
+void Pcsx2Config::EmulationSpeedOptions::SanityCheck()
 {
 	// Ensure Conformation of various options...
 
@@ -1285,13 +1711,28 @@ void Pcsx2Config::FramerateOptions::SanityCheck()
 	SlomoScalar = std::clamp(SlomoScalar, 0.05f, 10.0f);
 }
 
-void Pcsx2Config::FramerateOptions::LoadSave(SettingsWrapper& wrap)
+void Pcsx2Config::EmulationSpeedOptions::LoadSave(SettingsWrapper& wrap)
 {
 	SettingsWrapSection("Framerate");
 
 	SettingsWrapEntry(NominalScalar);
 	SettingsWrapEntry(TurboScalar);
 	SettingsWrapEntry(SlomoScalar);
+
+	// This was in the wrong place... but we can't change it without breaking existing configs.
+	//SettingsWrapBitBool(SyncToHostRefreshRate);
+	SyncToHostRefreshRate = wrap.EntryBitBool("EmuCore/GS", "SyncToHostRefreshRate", SyncToHostRefreshRate, SyncToHostRefreshRate);
+	UseVSyncForTiming = wrap.EntryBitBool("EmuCore/GS", "UseVSyncForTiming", UseVSyncForTiming, UseVSyncForTiming);
+}
+
+bool Pcsx2Config::EmulationSpeedOptions::operator==(const EmulationSpeedOptions& right) const
+{
+	return OpEqu(bitset) && OpEqu(NominalScalar) && OpEqu(TurboScalar) && OpEqu(SlomoScalar);
+}
+
+bool Pcsx2Config::EmulationSpeedOptions::operator!=(const EmulationSpeedOptions& right) const
+{
+	return !this->operator==(right);
 }
 
 Pcsx2Config::USBOptions::USBOptions()
@@ -1349,19 +1790,85 @@ bool Pcsx2Config::USBOptions::operator!=(const USBOptions& right) const
 	return !this->operator==(right);
 }
 
-#ifdef ENABLE_ACHIEVEMENTS
+Pcsx2Config::PadOptions::PadOptions()
+{
+	for (u32 i = 0; i < static_cast<u32>(Ports.size()); i++)
+	{
+		Port& port = Ports[i];
+		port.Type = Pad::GetDefaultPadType(i);
+	}
+
+	bitset = 0;
+}
+
+void Pcsx2Config::PadOptions::LoadSave(SettingsWrapper& wrap)
+{
+	for (u32 i = 0; i < static_cast<u32>(Ports.size()); i++)
+	{
+		Port& port = Ports[i];
+
+		std::string section = Pad::GetConfigSection(i);
+		std::string type_name = Pad::GetControllerInfo(port.Type)->name;
+		wrap.Entry(section.c_str(), "Type", type_name, type_name);
+
+		if (wrap.IsLoading())
+		{
+			const Pad::ControllerInfo* cinfo = Pad::GetControllerInfoByName(type_name);
+			if (cinfo)
+			{
+				port.Type = cinfo->type;
+			}
+			else
+			{
+				Console.Error(fmt::format("Invalid controller type {} specified in config, disconnecting.", type_name));
+				port.Type = Pad::ControllerType::NotConnected;
+			}
+		}
+	}
+
+	SettingsWrapSection("Pad");
+	SettingsWrapBitBoolEx(MultitapPort0_Enabled, "MultitapPort1");
+	SettingsWrapBitBoolEx(MultitapPort1_Enabled, "MultitapPort2");
+}
+
+
+bool Pcsx2Config::PadOptions::operator==(const PadOptions& right) const
+{
+	for (u32 i = 0; i < static_cast<u32>(Ports.size()); i++)
+	{
+		if (!OpEqu(Ports[i]))
+			return false;
+	}
+
+	return true;
+}
+
+bool Pcsx2Config::PadOptions::operator!=(const PadOptions& right) const
+{
+	return !this->operator==(right);
+}
+
+bool Pcsx2Config::PadOptions::Port::operator==(const PadOptions::Port& right) const
+{
+	return OpEqu(Type);
+}
+
+bool Pcsx2Config::PadOptions::Port::operator!=(const PadOptions::Port& right) const
+{
+	return !this->operator==(right);
+}
 
 Pcsx2Config::AchievementsOptions::AchievementsOptions()
 {
 	Enabled = false;
-	TestMode = false;
+	HardcoreMode = false;
+	EncoreMode = false;
+	SpectatorMode = false;
 	UnofficialTestMode = false;
-	RichPresence = true;
-	ChallengeMode = false;
-	Leaderboards = true;
 	Notifications = true;
+	LeaderboardNotifications = true;
 	SoundEffects = true;
-	PrimedIndicators = true;
+	Overlays = true;
 }
 
 void Pcsx2Config::AchievementsOptions::LoadSave(SettingsWrapper& wrap)
@@ -1369,43 +1876,57 @@ void Pcsx2Config::AchievementsOptions::LoadSave(SettingsWrapper& wrap)
 	SettingsWrapSection("Achievements");
 
 	SettingsWrapBitBool(Enabled);
-	SettingsWrapBitBool(TestMode);
+	SettingsWrapBitBoolEx(HardcoreMode, "ChallengeMode");
+	SettingsWrapBitBool(EncoreMode);
+	SettingsWrapBitBool(SpectatorMode);
 	SettingsWrapBitBool(UnofficialTestMode);
-	SettingsWrapBitBool(RichPresence);
-	SettingsWrapBitBool(ChallengeMode);
-	SettingsWrapBitBool(Leaderboards);
 	SettingsWrapBitBool(Notifications);
+	SettingsWrapBitBool(LeaderboardNotifications);
 	SettingsWrapBitBool(SoundEffects);
-	SettingsWrapBitBool(PrimedIndicators);
+	SettingsWrapBitBool(Overlays);
+	SettingsWrapEntry(NotificationsDuration);
+	SettingsWrapEntry(LeaderboardsDuration);
+
+	if (wrap.IsLoading())
+	{
+		//Clamp in case setting was updated manually using the INI
+		NotificationsDuration = std::clamp(NotificationsDuration, MINIMUM_NOTIFICATION_DURATION, MAXIMUM_NOTIFICATION_DURATION);
+		LeaderboardsDuration = std::clamp(LeaderboardsDuration, MINIMUM_NOTIFICATION_DURATION, MAXIMUM_NOTIFICATION_DURATION);
+	}
 }
 
-#endif
+bool Pcsx2Config::AchievementsOptions::operator==(const AchievementsOptions& right) const
+{
+	return OpEqu(bitset) && OpEqu(NotificationsDuration) && OpEqu(LeaderboardsDuration);
+}
+
+bool Pcsx2Config::AchievementsOptions::operator!=(const AchievementsOptions& right) const
+{
+	return !this->operator==(right);
+}
 
 Pcsx2Config::Pcsx2Config()
 {
 	bitset = 0;
 	// Set defaults for fresh installs / reset settings
-	McdEnableEjection = true;
 	McdFolderAutoManage = true;
 	EnablePatches = true;
 	EnableFastBoot = true;
-	EnablePerGameSettings = true;
 	EnableRecordingTools = true;
 	EnableGameFixes = true;
 	InhibitScreensaver = true;
 	BackupSavestate = true;
-	SavestateZstdCompression = true;
+
 	//black box/noodles fix for parappa 2, set as default for ptr2plus
 	EmuConfig.Speedhacks.vuThread = false;
 	EmuConfig.Speedhacks.vu1Instant = false;
 	//ptr2plus needs hostfs on
 	HostFs = true;
 
-#ifdef _WIN32
-	McdCompressNTFS = true;
-#endif
 	performance_preset = 0;
+
 	WarnAboutUnsafeSettings = true;
+	ManuallySetRealTimeClock = false;
 
 	// To be moved to FileMemoryCard pluign (someday)
 	for (uint slot = 0; slot < 8; ++slot)
@@ -1418,20 +1939,21 @@ Pcsx2Config::Pcsx2Config()
 
 	GzipIsoIndexTemplate = "$(f).pindex.tmp";
 	PINESlot = 28011;
+	RtcYear = 0;
+	RtcMonth = 1;
+	RtcDay = 1;
+	RtcHour = 0;
+	RtcMinute = 0;
+	RtcSecond = 0;
 }
 
-void Pcsx2Config::LoadSave(SettingsWrapper& wrap)
+void Pcsx2Config::LoadSaveCore(SettingsWrapper& wrap)
 {
-	// Switch the rounding mode back to the system default for loading settings.
-	// That way, we'll get exactly the same values as what we loaded when we first started.
-	const SSE_MXCSR prev_mxcsr(SSE_MXCSR::GetCurrent());
-	SSE_MXCSR::SetCurrent(SSE_MXCSR{SYSTEM_sseMXCSR});
-
 	SettingsWrapSection("EmuCore");
 
 	SettingsWrapBitBool(CdvdVerboseReads);
 	SettingsWrapBitBool(CdvdDumpBlocks);
-	SettingsWrapBitBool(CdvdShareWrite);
+	SettingsWrapBitBool(CdvdPrecache);
 	SettingsWrapBitBool(EnablePatches);
 	SettingsWrapBitBool(EnableCheats);
 	SettingsWrapBitBool(EnablePINE);
@@ -1439,21 +1961,21 @@ void Pcsx2Config::LoadSave(SettingsWrapper& wrap)
 	SettingsWrapBitBool(EnableNoInterlacingPatches);
 	SettingsWrapBitBool(EnableFastBoot);
 	SettingsWrapBitBool(EnableFastBootFastForward);
-	SettingsWrapBitBool(EnablePerGameSettings);
+	SettingsWrapBitBool(EnableThreadPinning);
 	SettingsWrapBitBool(EnableRecordingTools);
 	SettingsWrapBitBool(EnableGameFixes);
 	SettingsWrapBitBool(SaveStateOnShutdown);
+	SettingsWrapBitBool(UseSavestateSelector);
 	SettingsWrapBitBool(EnableDiscordPresence);
 	SettingsWrapBitBool(InhibitScreensaver);
-	SettingsWrapBitBool(ConsoleToStdio);
 	SettingsWrapBitBool(HostFs);
 
 	SettingsWrapBitBool(BackupSavestate);
-	SettingsWrapBitBool(SavestateZstdCompression);
-	SettingsWrapBitBool(McdEnableEjection);
 	SettingsWrapBitBool(McdFolderAutoManage);
 
 	SettingsWrapBitBool(WarnAboutUnsafeSettings);
+
+	SettingsWrapBitBool(ManuallySetRealTimeClock);
 
 	// Process various sub-components:
 
@@ -1464,35 +1986,43 @@ void Pcsx2Config::LoadSave(SettingsWrapper& wrap)
 	DEV9.LoadSave(wrap);
 	Gamefixes.LoadSave(wrap);
 	Profiler.LoadSave(wrap);
+	Savestate.LoadSave(wrap);
 
 	Debugger.LoadSave(wrap);
+	DebuggerAnalysis.LoadSave(wrap);
 	Trace.LoadSave(wrap);
-	USB.LoadSave(wrap);
 
-#ifdef ENABLE_ACHIEVEMENTS
 	Achievements.LoadSave(wrap);
-#endif
 
 	SettingsWrapEntry(GzipIsoIndexTemplate);
 	SettingsWrapEntry(PINESlot);
+	SettingsWrapEntry(RtcYear);
+	SettingsWrapEntry(RtcMonth);
+	SettingsWrapEntry(RtcDay);
+	SettingsWrapEntry(RtcHour);
+	SettingsWrapEntry(RtcMinute);
+	SettingsWrapEntry(RtcSecond);
 
 	// For now, this in the derived config for backwards ini compatibility.
 	SettingsWrapEntryEx(CurrentBlockdump, "BlockDumpSaveDirectory");
 
 	BaseFilenames.LoadSave(wrap);
-	Framerate.LoadSave(wrap);
+	EmulationSpeed.LoadSave(wrap);
 	LoadSaveMemcards(wrap);
 
-#ifdef _WIN32
-	SettingsWrapEntry(McdCompressNTFS);
-#endif
 	SettingsWrapEntry(performance_preset);
+
 	if (wrap.IsLoading())
 	{
 		CurrentAspectRatio = GS.AspectRatio;
 	}
+}
 
-	SSE_MXCSR::SetCurrent(prev_mxcsr);
+void Pcsx2Config::LoadSave(SettingsWrapper& wrap)
+{
+	LoadSaveCore(wrap);
+	USB.LoadSave(wrap);
+	Pad.LoadSave(wrap);
 }
 
 void Pcsx2Config::LoadSaveMemcards(SettingsWrapper& wrap)
@@ -1517,12 +2047,6 @@ void Pcsx2Config::LoadSaveMemcards(SettingsWrapper& wrap)
 	}
 }
 
-bool Pcsx2Config::MultitapEnabled(uint port) const
-{
-	pxAssert(port < 2);
-	return (port == 0) ? MultitapPort0_Enabled : MultitapPort1_Enabled;
-}
-
 std::string Pcsx2Config::FullpathToBios() const
 {
 	std::string ret;
@@ -1536,39 +2060,13 @@ std::string Pcsx2Config::FullpathToMcd(uint slot) const
 	return Path::Combine(EmuFolders::MemoryCards, Mcd[slot].Filename);
 }
 
-bool Pcsx2Config::operator==(const Pcsx2Config& right) const
-{
-	bool equal =
-		OpEqu(bitset) &&
-		OpEqu(Cpu) &&
-		OpEqu(GS) &&
-		OpEqu(DEV9) &&
-		OpEqu(Speedhacks) &&
-		OpEqu(Gamefixes) &&
-		OpEqu(Profiler) &&
-		OpEqu(Debugger) &&
-		OpEqu(Framerate) &&
-		OpEqu(Trace) &&
-		OpEqu(BaseFilenames) &&
-		OpEqu(GzipIsoIndexTemplate) &&
-		OpEqu(PINESlot);
-	for (u32 i = 0; i < sizeof(Mcd) / sizeof(Mcd[0]); i++)
-	{
-		equal &= OpEqu(Mcd[i].Enabled);
-		equal &= OpEqu(Mcd[i].Filename);
-	}
-
-	return equal;
-}
-
 void Pcsx2Config::CopyRuntimeConfig(Pcsx2Config& cfg)
 {
-	GS.LimitScalar = cfg.GS.LimitScalar;
 	CurrentBlockdump = std::move(cfg.CurrentBlockdump);
 	CurrentIRX = std::move(cfg.CurrentIRX);
 	CurrentGameArgs = std::move(cfg.CurrentGameArgs);
 	CurrentAspectRatio = cfg.CurrentAspectRatio;
-	LimiterMode = cfg.LimiterMode;
+	IsPortableMode = cfg.IsPortableMode;
 
 	for (u32 i = 0; i < sizeof(Mcd) / sizeof(Mcd[0]); i++)
 	{
@@ -1576,26 +2074,72 @@ void Pcsx2Config::CopyRuntimeConfig(Pcsx2Config& cfg)
 	}
 }
 
-bool EmuFolders::InitializeCriticalFolders()
+void Pcsx2Config::CopyConfiguration(SettingsInterface* dest_si, SettingsInterface& src_si)
 {
-	SetAppRoot();
-	SetResourcesDirectory();
-	SetDataDirectory();
+	FPControlRegisterBackup fpcr_backup(FPControlRegister::GetDefault());
+
+	Pcsx2Config temp;
+	{
+		SettingsLoadWrapper wrapper(src_si);
+		temp.LoadSaveCore(wrapper);
+	}
+	{
+		SettingsSaveWrapper wrapper(*dest_si);
+		temp.LoadSaveCore(wrapper);
+	}
+}
+
+void Pcsx2Config::ClearConfiguration(SettingsInterface* dest_si)
+{
+	FPControlRegisterBackup fpcr_backup(FPControlRegister::GetDefault());
+
+	Pcsx2Config temp;
+	SettingsClearWrapper wrapper(*dest_si);
+	temp.LoadSaveCore(wrapper);
+}
+
+void Pcsx2Config::ClearInvalidPerGameConfiguration(SettingsInterface* si)
+{
+	// Deprecated in favor of patches.
+	si->DeleteValue("EmuCore", "EnableWideScreenPatches");
+	si->DeleteValue("EmuCore", "EnableNoInterlacingPatches");
+}
+
+void EmuFolders::SetAppRoot()
+{
+	std::string program_path = FileSystem::GetProgramPath();
+#ifdef __APPLE__
+	const auto bundle_path = CocoaTools::GetNonTranslocatedBundlePath();
+	if (bundle_path.has_value())
+	{
+		// On macOS, override with the bundle path if launched from a bundle.
+		program_path = bundle_path.value();
+	}
+#endif
+	Console.WriteLnFmt("Program Path: {}", program_path);
+
+	AppRoot = Path::Canonicalize(Path::GetDirectory(program_path));
 
 	// logging of directories in case something goes wrong super early
-	Console.WriteLn("AppRoot Directory: %s", AppRoot.c_str());
-	Console.WriteLn("DataRoot Directory: %s", DataRoot.c_str());
-	Console.WriteLn("Resources Directory: %s", Resources.c_str());
+	Console.WriteLnFmt("AppRoot Directory: {}", AppRoot);
+}
 
-	// allow SetDataDirectory() to change settings directory (if we want to split config later on)
-	if (Settings.empty())
-	{
-		Settings = Path::Combine(DataRoot, "inis");
+bool EmuFolders::SetResourcesDirectory()
+{
+#ifndef __APPLE__
+#ifndef PCSX2_APP_DATADIR
+	// On Windows/Linux, these are in the binary directory.
+	Resources = Path::Combine(AppRoot, "resources");
+#else
+	Resources = Path::Canonicalize(Path::Combine(AppRoot, PCSX2_APP_DATADIR "/resources"));
+#endif
+#else
+	// On macOS, this is in the bundle resources directory.
+	const std::string program_path = FileSystem::GetProgramPath();
+	Resources = Path::Canonicalize(Path::Combine(Path::GetDirectory(program_path), "../Resources"));
+#endif
 
-		// Create settings directory if it doesn't exist. If we're not using portable mode, it won't.
-		if (!FileSystem::DirectoryExists(Settings.c_str()))
-			FileSystem::CreateDirectoryPath(Settings.c_str(), false);
-	}
+	Console.WriteLnFmt("Resources Directory: {}", Resources);
 
 	// the resources directory should exist, bail out if not
 	if (!FileSystem::DirectoryExists(Resources.c_str()))
@@ -1607,92 +2151,95 @@ bool EmuFolders::InitializeCriticalFolders()
 	return true;
 }
 
-void EmuFolders::SetAppRoot()
-{
-	std::string program_path(FileSystem::GetProgramPath());
-	Console.WriteLn("Program Path: %s", program_path.c_str());
-
-	AppRoot = Path::Canonicalize(Path::GetDirectory(program_path));
-}
-
-void EmuFolders::SetResourcesDirectory()
-{
-#ifndef __APPLE__
-	// On Windows/Linux, these are in the binary directory.
-	Resources = Path::Combine(AppRoot, "resources");
-#else
-	// On macOS, this is in the bundle resources directory.
-	Resources = Path::Canonicalize(Path::Combine(AppRoot, "../Resources"));
-#endif
-}
-
 bool EmuFolders::ShouldUsePortableMode()
 {
-	// Check whether portable.ini exists in the program directory.
-	return FileSystem::FileExists(Path::Combine(AppRoot, "portable.ini").c_str());
+	// Check whether portable.ini/txt exists in the program directory or the `-portable` launch arguments have been passed.
+	if (FileSystem::FileExists(Path::Combine(AppRoot, "portable.ini").c_str()) ||
+		FileSystem::FileExists(Path::Combine(AppRoot, "portable.txt").c_str()) ||
+		EmuConfig.IsPortableMode)
+	{
+		return true;
+	}
+
+	return false;
 }
 
-void EmuFolders::SetDataDirectory()
+std::string EmuFolders::GetPortableModePath()
 {
-	if (ShouldUsePortableMode())
-	{
-		DataRoot = AppRoot;
-		return;
-	}
+	const auto portable_txt_path = Path::Combine(AppRoot, "portable.txt");
+	const auto portable_path = FileSystem::ReadFileToString(portable_txt_path.c_str()).value_or("");
+	const auto trimmed_path = StringUtil::StripWhitespace(portable_path);
+	return std::string(trimmed_path);
+}
 
+bool EmuFolders::SetDataDirectory(Error* error)
+{
+	if (!ShouldUsePortableMode())
+	{
 #if defined(_WIN32)
-	// On Windows, use My Documents\PCSX2 to match old installs.
-	PWSTR documents_directory;
-	if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, NULL, &documents_directory)))
-	{
-		if (std::wcslen(documents_directory) > 0)
-			DataRoot = Path::Combine(StringUtil::WideStringToUTF8String(documents_directory), "PCSX2");
-		CoTaskMemFree(documents_directory);
-	}
+		// On Windows, use My Documents\PCSX2 to match old installs.
+		PWSTR documents_directory;
+		if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, NULL, &documents_directory)))
+		{
+			if (std::wcslen(documents_directory) > 0)
+				DataRoot = Path::Combine(StringUtil::WideStringToUTF8String(documents_directory), "PCSX2");
+			CoTaskMemFree(documents_directory);
+		}
 #elif defined(__linux__) || defined(__FreeBSD__)
-	// Use $XDG_CONFIG_HOME/PCSX2 if it exists.
-	const char* xdg_config_home = getenv("XDG_CONFIG_HOME");
-	if (xdg_config_home && Path::IsAbsolute(xdg_config_home))
-	{
-		DataRoot = Path::Combine(xdg_config_home, "PCSX2");
-	}
-	else
-	{
-		// Use ~/PCSX2 for non-XDG, and ~/.config/PCSX2 for XDG.
-		// Maybe we should drop the former when Qt goes live.
+		// Use $XDG_CONFIG_HOME/PCSX2 if it exists.
+		const char* xdg_config_home = getenv("XDG_CONFIG_HOME");
+		if (xdg_config_home && Path::IsAbsolute(xdg_config_home))
+		{
+			DataRoot = Path::RealPath(Path::Combine(xdg_config_home, "PCSX2"));
+		}
+		else
+		{
+			// Use ~/PCSX2 for non-XDG, and ~/.config/PCSX2 for XDG.
+			const char* home_dir = getenv("HOME");
+			if (home_dir)
+			{
+				// ~/.config should exist, but just in case it doesn't and this is a fresh profile..
+				const std::string config_dir(Path::Combine(home_dir, ".config"));
+				if (!FileSystem::DirectoryExists(config_dir.c_str()))
+					FileSystem::CreateDirectoryPath(config_dir.c_str(), false);
+
+				DataRoot = Path::RealPath(Path::Combine(config_dir, "PCSX2"));
+			}
+		}
+#elif defined(__APPLE__)
+		static constexpr char MAC_DATA_DIR[] = "Library/Application Support/PCSX2";
 		const char* home_dir = getenv("HOME");
 		if (home_dir)
-		{
-#ifdef USE_LEGACY_USER_DIRECTORY
-			DataRoot = Path::Combine(home_dir, "PCSX2");
-#else
-			// ~/.config should exist, but just in case it doesn't and this is a fresh profile..
-			const std::string config_dir(Path::Combine(home_dir, ".config"));
-			if (!FileSystem::DirectoryExists(config_dir.c_str()))
-				FileSystem::CreateDirectoryPath(config_dir.c_str(), false);
-
-			DataRoot = Path::Combine(config_dir, "PCSX2");
+			DataRoot = Path::RealPath(Path::Combine(home_dir, MAC_DATA_DIR));
 #endif
-		}
 	}
-#elif defined(__APPLE__)
-	static constexpr char MAC_DATA_DIR[] = "Library/Application Support/PCSX2";
-	const char* home_dir = getenv("HOME");
-	if (home_dir)
-		DataRoot = Path::Combine(home_dir, MAC_DATA_DIR);
+
+	// couldn't determine the data directory, or using portable mode? fallback to portable.
+	if (DataRoot.empty())
+	{
+#if defined(__linux__)
+	// special check if we're on appimage
+	// always make sure that DataRoot
+	// is adjacent next to the appimage
+	if (getenv("APPIMAGE"))
+	{
+		std::string_view appimage_path = Path::GetDirectory(getenv("APPIMAGE"));
+		DataRoot = Path::RealPath(Path::Combine(appimage_path, "PCSX2"));
+	}
+	else
+		DataRoot = Path::Combine(AppRoot, GetPortableModePath());
+#else
+		DataRoot = Path::Combine(AppRoot, GetPortableModePath());
 #endif
+	}
+
+	// inis is always below the data root
+	Settings = Path::Combine(DataRoot, "inis");
 
 	// make sure it exists
-	if (!DataRoot.empty() && !FileSystem::DirectoryExists(DataRoot.c_str()))
-	{
-		// we're in trouble if we fail to create this directory... but try to hobble on with portable
-		if (!FileSystem::CreateDirectoryPath(DataRoot.c_str(), false))
-			DataRoot.clear();
-	}
-
-	// couldn't determine the data directory? fallback to portable.
-	if (DataRoot.empty())
-		DataRoot = AppRoot;
+	Console.WriteLnFmt("DataRoot Directory: {}", DataRoot);
+	return (FileSystem::EnsureDirectoryExists(DataRoot.c_str(), false, error) &&
+			FileSystem::EnsureDirectoryExists(Settings.c_str(), false, error));
 }
 
 void EmuFolders::SetDefaults(SettingsInterface& si)
@@ -1706,6 +2253,7 @@ void EmuFolders::SetDefaults(SettingsInterface& si)
 	si.SetStringValue("Folders", "Logs", "logs");
 	si.SetStringValue("Folders", "Cheats", "cheats");
 	si.SetStringValue("Folders", "Patches", "patches");
+	si.SetStringValue("Folders", "UserResources", "resources");
 	si.SetStringValue("Folders", "Cache", "cache");
 	si.SetStringValue("Folders", "Textures", "textures");
 	si.SetStringValue("Folders", "InputProfiles", "inputprofiles");
@@ -1733,10 +2281,12 @@ void EmuFolders::LoadConfig(SettingsInterface& si)
 	Patches = LoadPathFromSettings(si, DataRoot, "Patches", "patches");
 	Covers = LoadPathFromSettings(si, DataRoot, "Covers", "covers");
 	GameSettings = LoadPathFromSettings(si, DataRoot, "GameSettings", "gamesettings");
+	UserResources = LoadPathFromSettings(si, DataRoot, "UserResources", "resources");
 	Cache = LoadPathFromSettings(si, DataRoot, "Cache", "cache");
 	Textures = LoadPathFromSettings(si, DataRoot, "Textures", "textures");
 	InputProfiles = LoadPathFromSettings(si, DataRoot, "InputProfiles", "inputprofiles");
 	Videos = LoadPathFromSettings(si, DataRoot, "Videos", "videos");
+	DebuggerSettings = LoadPathFromSettings(si, Settings, "DebuggerSettings", "debuggersettings");
 
 	Console.WriteLn("PTR2Mods Directory: %s", PTR2Mods.c_str());
 	Console.WriteLn("PTR2 Directory: %s", PTR2.c_str());
@@ -1749,10 +2299,13 @@ void EmuFolders::LoadConfig(SettingsInterface& si)
 	Console.WriteLn("Patches Directory: %s", Patches.c_str());
 	Console.WriteLn("Covers Directory: %s", Covers.c_str());
 	Console.WriteLn("Game Settings Directory: %s", GameSettings.c_str());
+	Console.WriteLn("Resources Directory: %s", Resources.c_str());
+	Console.WriteLn("User Resources Directory: %s", UserResources.c_str());
 	Console.WriteLn("Cache Directory: %s", Cache.c_str());
 	Console.WriteLn("Textures Directory: %s", Textures.c_str());
 	Console.WriteLn("Input Profile Directory: %s", InputProfiles.c_str());
 	Console.WriteLn("Video Dumping Directory: %s", Videos.c_str());
+	Console.WriteLn("Debugger Settings Directory: %s", DebuggerSettings.c_str());
 }
 
 bool EmuFolders::EnsureFoldersExist()
@@ -1769,6 +2322,8 @@ bool EmuFolders::EnsureFoldersExist()
 	result = FileSystem::CreateDirectoryPath(Patches.c_str(), false) && result;
 	result = FileSystem::CreateDirectoryPath(Covers.c_str(), false) && result;
 	result = FileSystem::CreateDirectoryPath(GameSettings.c_str(), false) && result;
+	result = FileSystem::CreateDirectoryPath(UserResources.c_str(), false) && result;
+	result = FileSystem::CreateDirectoryPath(DebuggerSettings.c_str(), false) && result;
 	result = FileSystem::CreateDirectoryPath(Cache.c_str(), false) && result;
 	result = FileSystem::CreateDirectoryPath(Textures.c_str(), false) && result;
 	result = FileSystem::CreateDirectoryPath(InputProfiles.c_str(), false) && result;
@@ -1776,11 +2331,27 @@ bool EmuFolders::EnsureFoldersExist()
 	return result;
 }
 
-std::FILE* EmuFolders::OpenLogFile(const std::string_view& name, const char* mode)
+std::FILE* EmuFolders::OpenLogFile(std::string_view name, const char* mode)
 {
 	if (name.empty())
 		return nullptr;
 
 	const std::string path(Path::Combine(Logs, name));
 	return FileSystem::OpenCFile(path.c_str(), mode);
+}
+
+std::string EmuFolders::GetOverridableResourcePath(std::string_view name)
+{
+	std::string upath = Path::Combine(UserResources, name);
+	if (FileSystem::FileExists(upath.c_str()))
+	{
+		if (UserResources != Resources)
+			Console.Warning(fmt::format("Using user-provided resource file {}", name));
+	}
+	else
+	{
+		upath = Path::Combine(Resources, name);
+	}
+
+	return upath;
 }

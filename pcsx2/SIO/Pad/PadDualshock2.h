@@ -1,17 +1,5 @@
-﻿/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2023  PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+﻿// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
@@ -58,23 +46,22 @@ public:
 		LENGTH,
 	};
 
-	static constexpr u32 PRESSURE_BUTTONS = 12;
 	static constexpr u8 VIBRATION_MOTORS = 2;
 
 private:
 	struct Analogs
 	{
-		u8 lx = 0x7f;
-		u8 ly = 0x7f;
-		u8 rx = 0x7f;
-		u8 ry = 0x7f;
-		u8 lxInvert = 0x7f;
-		u8 lyInvert = 0x7f;
-		u8 rxInvert = 0x7f;
-		u8 ryInvert = 0x7f;
+		u8 lx = Pad::ANALOG_NEUTRAL_POSITION;
+		u8 ly = Pad::ANALOG_NEUTRAL_POSITION;
+		u8 rx = Pad::ANALOG_NEUTRAL_POSITION;
+		u8 ry = Pad::ANALOG_NEUTRAL_POSITION;
+		bool lxInvert = false;
+		bool lyInvert = false;
+		bool rxInvert = false;
+		bool ryInvert = false;
 	};
 
-	u32 buttons;
+	u32 buttons = 0xffffffffu;
 	Analogs analogs;
 	bool analogLight = false;
 	bool analogLocked = false;
@@ -83,23 +70,45 @@ private:
 	// and out of analog mode every frame.
 	bool analogPressed = false;
 	bool commandStage = false;
-	u32 responseBytes;
-	std::array<u8, PRESSURE_BUTTONS> pressures;
-	std::array<u8, VIBRATION_MOTORS> vibrationMotors;
-	float axisScale;
-	float axisDeadzone;
-	float triggerScale;
-	float triggerDeadzone;
-	std::array<float, 2> vibrationScale;
+	u32 responseBytes = 0;
+	std::array<u8, VIBRATION_MOTORS> vibrationMotors = {};
+	float axisScale = 1.0f;
+	float axisDeadzone = 0.0f;
+	std::array<float, 2> vibrationScale = {1.0f, 1.0f};
 	// When the pressure modifier binding is activated, this is multiplied against
 	// all values in pressures, to artificially reduce pressures and give players
 	// a way to simulate pressure sensitive controls.
-	float pressureModifier;
-	float buttonDeadzone;
+	float pressureModifier = 0.5f;
+	float buttonDeadzone = 0.0f;
 	// Used to store the last vibration mapping request the PS2 made for the small motor.
 	u8 smallMotorLastConfig = 0xff;
 	// Used to store the last vibration mapping request the PS2 made for the large motor.
 	u8 largeMotorLastConfig = 0xff;
+
+	// Since we reordered the buttons for better UI, we need to remap them here.
+	static constexpr std::array<u8, Inputs::LENGTH> bitmaskMapping = {{
+		12, // PAD_UP
+		13, // PAD_RIGHT
+		14, // PAD_DOWN
+		15, // PAD_LEFT
+		4, // PAD_TRIANGLE
+		5, // PAD_CIRCLE
+		6, // PAD_CROSS
+		7, // PAD_SQUARE
+		8, // PAD_SELECT
+		11, // PAD_START
+		2, // PAD_L1
+		0, // PAD_L2
+		3, // PAD_R1
+		1, // PAD_R2
+		9, // PAD_L3
+		10, // PAD_R3
+		16, // PAD_ANALOG
+		17, // PAD_PRESSURE
+		// remainder are analogs and not used here
+	}};
+
+	void ConfigLog();
 
 	u8 Mystery(u8 commandByte);
 	u8 ButtonQuery(u8 commandByte);
@@ -114,7 +123,7 @@ private:
 	u8 ResponseBytes(u8 commandByte);
 
 public:
-	PadDualshock2(u8 unifiedSlot);
+	PadDualshock2(u8 unifiedSlot, size_t ejectTicks);
 	~PadDualshock2() override;
 
 	static inline bool IsAnalogKey(int index)
@@ -127,13 +136,12 @@ public:
 		return (index == Inputs::PAD_L2 || index == Inputs::PAD_R2);
 	}
 
-	void Init() override;
 	Pad::ControllerType GetType() const override;
 	const Pad::ControllerInfo& GetInfo() const override;
 	void Set(u32 index, float value) override;
 	void SetRawAnalogs(const std::tuple<u8, u8> left, const std::tuple<u8, u8> right) override;
+	void SetRawPressureButton(u32 index, const std::tuple<bool, u8> value) override;
 	void SetAxisScale(float deadzone, float scale) override;
-	void SetTriggerScale(float deadzone, float scale) override;
 	float GetVibrationScale(u32 motor) const override;
 	void SetVibrationScale(u32 motor, float scale) override;
 	float GetPressureModifier() const override;
@@ -141,6 +149,7 @@ public:
 	void SetButtonDeadzone(float deadzone) override;
 	void SetAnalogInvertL(bool x, bool y) override;
 	void SetAnalogInvertR(bool x, bool y) override;
+	float GetEffectiveInput(u32 index) const override;
 	u8 GetRawInput(u32 index) const override;
 	std::tuple<u8, u8> GetRawLeftAnalog() const override;
 	std::tuple<u8, u8> GetRawRightAnalog() const override;

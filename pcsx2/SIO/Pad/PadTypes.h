@@ -1,22 +1,11 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2023  PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
 #include "Config.h"
 
+#include <optional>
 #include <span>
 
 namespace Pad
@@ -75,6 +64,9 @@ namespace Pad
 		NotConnected,
 		DualShock2,
 		Guitar,
+		Jogcon,
+		Negcon,
+		Popn,
 		Count
 	};
 
@@ -91,22 +83,24 @@ namespace Pad
 		ControllerType type;
 		const char* name;
 		const char* display_name;
+		const char* icon_name;
 		std::span<const InputBindingInfo> bindings;
 		std::span<const SettingInfo> settings;
 		VibrationCapabilities vibration_caps;
 
-		// Returns localized controller type name.
+		/// Returns localized controller type name.
 		const char* GetLocalizedName() const;
+
+		/// Returns the index of the specified binding point, by name.
+		std::optional<u32> GetBindIndex(const std::string_view name) const;
 	};
 
 	// Total number of pad ports, across both multitaps.
-	static constexpr u32 NUM_CONTROLLER_PORTS = 8;
+	static constexpr u32 NUM_CONTROLLER_PORTS = Pcsx2Config::PadOptions::NUM_PORTS;
 
 	// Default stick deadzone/sensitivity.
 	static constexpr float DEFAULT_STICK_DEADZONE = 0.0f;
 	static constexpr float DEFAULT_STICK_SCALE = 1.33f;
-	static constexpr float DEFAULT_TRIGGER_DEADZONE = 0.0f;
-	static constexpr float DEFAULT_TRIGGER_SCALE = 1.0f;
 	static constexpr float DEFAULT_MOTOR_SCALE = 1.0f;
 	static constexpr float DEFAULT_PRESSURE_MODIFIER = 0.5f;
 	static constexpr float DEFAULT_BUTTON_DEADZONE = 0.0f;

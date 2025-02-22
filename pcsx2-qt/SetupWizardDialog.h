@@ -1,21 +1,7 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2023 PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
-
-#include "Settings/BIOSSettingsWidget.h"
 
 #include "ui_SetupWizardDialog.h"
 
@@ -46,7 +32,6 @@ private Q_SLOTS:
 
 	void refreshBiosList();
 	void biosListItemChanged(const QTreeWidgetItem* current, const QTreeWidgetItem* previous);
-	void listRefreshed(const QVector<BIOSInfo>& items);
 
 	bool askOverwrite(const std::string dest_path, bool& overwrite_set, bool& overwrite);
 
@@ -56,6 +41,7 @@ private Q_SLOTS:
 	void extractPTR2Files();
 
 	//void onDirectoryListContextMenuRequested(const QPoint& point);
+	void onDirectoryListSelectionChanged();
 	//void onAddSearchDirectoryButtonClicked();
 	//void onRemoveSearchDirectoryButtonClicked();
 	//void refreshDirectoryList();
@@ -98,8 +84,6 @@ private:
 	Ui::SetupWizardDialog m_ui;
 
 	std::array<QLabel*, Page_Count> m_page_labels;
-
-	BIOSSettingsWidget::RefreshThread* m_bios_refresh_thread = nullptr;
 
 	QList<QPair<QString, QString>> m_device_list;
 };

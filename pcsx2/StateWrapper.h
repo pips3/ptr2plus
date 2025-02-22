@@ -1,17 +1,5 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2022  PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 #include "common/HeapArray.h"
@@ -38,6 +26,7 @@ public:
 	class IStream
 	{
 	public:
+		virtual ~IStream();
 		virtual u32 Read(void* buf, u32 count) = 0;
 		virtual u32 Write(const void* buf, u32 count) = 0;
 		virtual u32 GetPosition() = 0;
@@ -153,7 +142,7 @@ public:
 	}
 
 	/// Overload for POD types, such as structs.
-	template <typename T, std::enable_if_t<std::is_pod_v<T>, int> = 0>
+	template <typename T, std::enable_if_t<std::is_standard_layout_v<T> && std::is_trivial_v<T>, int> = 0>
 	void DoPOD(T* value_ptr)
 	{
 		if (m_mode == Mode::Read)
@@ -194,8 +183,14 @@ public:
 		DoArray(data->data(), data->size());
 	}
 
-	template <typename T, size_t N>
-	void Do(HeapArray<T, N>* data)
+	template <typename T, size_t N, size_t A>
+	void Do(FixedHeapArray<T, N, A>* data)
+	{
+		DoArray(data->data(), data->size());
+	}
+
+	template <typename T, size_t A>
+	void Do(DynamicHeapArray<T, A>* data)
 	{
 		DoArray(data->data(), data->size());
 	}

@@ -1,21 +1,11 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2023 PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
 #include "common/Pcsx2Defs.h"
+
+#include <array>
 
 // --------------------------------------------------------------------------------------
 //  EE Bios function name tables.
@@ -172,17 +162,68 @@ struct fpuRegisters {
 	u32 ACCflag;        // an internal accumulator overflow flag
 };
 
+union PageMask_t
+{
+	struct
+	{
+		u32 : 13;
+		u32 Mask : 12;
+		u32 : 7;
+	};
+	u32 UL;
+};
+
+union EntryHi_t
+{
+	struct
+	{
+		u32 ASID:8;
+		u32 : 5;
+		u32 VPN2:19;
+	};
+	u32 UL;
+};
+
+union EntryLo_t
+{
+	struct
+	{
+		u32 G:1;
+		u32 V:1;
+		u32 D:1;
+		u32 C:3;
+		u32 PFN:20;
+		u32 : 5;
+		u32 S : 1; // Only used in EntryLo0
+	};
+	u32 UL;
+
+	constexpr bool isCached() const { return C == 0x3; }
+	constexpr bool isValidCacheMode() const { return C == 0x2 || C == 0x3 || C == 0x7; }
+};
+
 struct tlbs
 {
-	u32 PageMask,EntryHi;
-	u32 EntryLo0,EntryLo1;
-	u32 Mask, nMask;
-	u32 G;
-	u32 ASID;
-	u32 VPN2;
-	u32 PFN0;
-	u32 PFN1;
-	u32 S;
+	PageMask_t PageMask;
+	EntryHi_t EntryHi;
+	EntryLo_t EntryLo0;
+	EntryLo_t EntryLo1;
+
+	// (((cpuRegs.CP0.n.EntryLo0 >> 6) & 0xFFFFF) & (~tlb[i].Mask())) << 12;
+	constexpr u32 PFN0() const { return (EntryLo0.PFN & ~Mask()) << 12; }
+	constexpr u32 PFN1() const { return (EntryLo1.PFN & ~Mask()) << 12; }
+	constexpr u32 VPN2() const {return ((EntryHi.VPN2) & (~Mask())) << 13; }
+	constexpr u32 Mask() const { return PageMask.Mask; }
+	constexpr bool isGlobal() const { return EntryLo0.G && EntryLo1.G; }
+	constexpr bool isSPR() const { return EntryLo0.S; }
+
+	constexpr bool operator==(const tlbs& other) const
+	{
+		return PageMask.UL == other.PageMask.UL &&
+			   EntryHi.UL == other.EntryHi.UL &&
+			   EntryLo0.UL == other.EntryLo0.UL &&
+			   EntryLo1.UL == other.EntryLo1.UL;
+	}
 };
 
 #ifndef _PC_
@@ -214,12 +255,34 @@ struct tlbs
 
 #endif
 
-alignas(16) extern cpuRegisters cpuRegs;
-alignas(16) extern fpuRegisters fpuRegs;
+struct cpuRegistersPack
+{
+	alignas(16) cpuRegisters cpuRegs;
+	alignas(16) fpuRegisters fpuRegs;
+};
+
+alignas(16) extern cpuRegistersPack _cpuRegistersPack;
 alignas(16) extern tlbs tlb[48];
+
+struct cachedTlbs_t
+{
+	u32 count;
+
+	alignas(16) std::array<u32, 48> PageMasks;
+	alignas(16) std::array<u32, 48> PFN1s;
+	alignas(16) std::array<u32, 48> CacheEnabled1;
+	alignas(16) std::array<u32, 48> PFN0s;
+	alignas(16) std::array<u32, 48> CacheEnabled0;
+};
+
+extern cachedTlbs_t cachedTlbs;
+
+static cpuRegisters& cpuRegs = _cpuRegistersPack.cpuRegs;
+static fpuRegisters& fpuRegs = _cpuRegistersPack.fpuRegs;
 
 extern bool eeEventTestIsActive;
 
+void intUpdateCPUCycles();
 void intSetBranch();
 
 // This is a special form of the interpreter's doBranch that is run from various
@@ -248,48 +311,19 @@ struct R5900cpu
 	// the virtual cpu provider.  Allocating additional heap memory from this method is
 	// NOT recommended.  Heap allocations should be performed by Reset only.  This
 	// maximizes the likeliness of reservations claiming addresses they prefer.
-	//
-	// Thread Affinity:
-	//   Called from the main/UI thread only.  Cpu execution status is guaranteed to
-	//   be inactive.  No locking is necessary.
-	//
-	// Exception Throws:
-	//   HardwareDeficiency - The host machine's hardware does not support this CPU provider.
-	//   OutOfMemory - Not enough memory, or the memory areas required were already
-	//                 reserved.
 	void (*Reserve)();
 
 	// Deallocates ram allocated by Allocate, Reserve, and/or by runtime code execution.
-	//
-	// Thread Affinity:
-	//   Called from the main/UI thread only.  Cpu execution status is guaranteed to
-	//   be inactive.  No locking is necessary.
-	//
-	// Exception Throws:  None.  This function is a destructor, and should not throw.
-	//
 	void (*Shutdown)();
 
 	// Initializes / Resets code execution states. Typically implementation is only
 	// needed for recompilers, as interpreters have no internal execution states and
 	// rely on the CPU/VM states almost entirely.
-	//
-	// Thread Affinity:
-	//   Can be called from any thread.  CPU execution status is indeterminate and may
-	//   already be in progress.  Implementations should be sure to queue and execute
-	//   resets at the earliest safe convenience (typically right before recompiling a
-	//   new block of code, or after a vsync event).
-	//
-	// Exception Throws:  Emulator-defined.  Common exception types to expect are
-	//   OutOfMemory, Stream Exceptions
-	//
 	void (*Reset)();
 
 	// Steps a single instruction.  Meant to be used by debuggers.  Is currently unused
 	// and unimplemented.  Future note: recompiler "step" should *always* fall back
 	// on interpreters.
-	//
-	// Exception Throws:  [TODO] (possible execution-related throws to be added)
-	//
 	void (*Step)();
 
 	// Executes code until a break is signaled.  Execution can be paused or suspended
@@ -297,11 +331,6 @@ struct R5900cpu
 	// Execution Breakages are handled the same way, where-by a signal causes the Execute
 	// call to return at the nearest state check (typically handled internally using
 	// either C++ exceptions or setjmp/longjmp).
-	//
-	// Exception Throws:
-	//   Throws BaseR5900Exception and all derivatives.
-	//   Throws FileNotFound or other Streaming errors (typically related to BIOS MEC/NVM)
-	//
 	void (*Execute)();
 
 	// Immediately exits execution of recompiled code if we are in a state to do so, or
@@ -319,13 +348,6 @@ struct R5900cpu
 	// Also: the calls from COP0's TLB remap code should be replaced with full recompiler
 	// resets, since TLB remaps affect more than just the code they contain (code that
 	// may reference the remapped blocks via memory loads/stores, for example).
-	//
-	// Thread Affinity Rule:
-	//   Can be called from any thread (namely for being called from debugging threads)
-	//
-	// Exception Throws: [TODO] Emulator defined?  (probably shouldn't throw, probably
-	//   doesn't matter if we're stripping it out soon. ;)
-	//
 	void (*Clear)(u32 Addr, u32 Size);
 };
 

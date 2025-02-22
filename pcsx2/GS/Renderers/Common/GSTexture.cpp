@@ -1,36 +1,42 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2023 PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
-#include "PrecompiledHeader.h"
 #include "GS/Renderers/Common/GSTexture.h"
 #include "GS/Renderers/Common/GSDevice.h"
 #include "GS/GSPng.h"
+
+#include "common/Console.h"
 #include "common/BitUtils.h"
 #include "common/StringUtil.h"
+
 #include <bit>
 #include <bitset>
 
 GSTexture::GSTexture() = default;
 
+GSTexture::~GSTexture() = default;
+
 bool GSTexture::Save(const std::string& fn)
 {
-#ifdef PCSX2_DEVBUILD
-	GSPng::Format format = GSPng::RGB_A_PNG;
-#else
-	GSPng::Format format = GSPng::RGB_PNG;
-#endif
+	// Depth textures need special treatment - we have a stencil component.
+	// Just re-use the existing conversion shader instead.
+	if (m_format == Format::DepthStencil)
+	{
+		GSTexture* temp = g_gs_device->CreateRenderTarget(GetWidth(), GetHeight(), Format::Color, false);
+		if (!temp)
+		{
+			Console.Error("Failed to allocate %dx%d texture for depth conversion", GetWidth(), GetHeight());
+			return false;
+		}
+
+		g_gs_device->StretchRect(this, GSVector4::cxpr(0.0f, 0.0f, 1.0f, 1.0f), temp, GSVector4(GetRect()), ShaderConvert::FLOAT32_TO_RGBA8, false);
+		const bool res = temp->Save(fn);
+		g_gs_device->Recycle(temp);
+		return res;
+	}
+
+	GSPng::Format format = (IsDevBuild || GSConfig.SaveAlpha) ? GSPng::RGB_A_PNG : GSPng::RGB_PNG;
+
 	switch (m_format)
 	{
 		case Format::UNorm8:
@@ -52,18 +58,26 @@ bool GSTexture::Save(const std::string& fn)
 	}
 
 	const int compression = GSConfig.PNGCompressionLevel;
-	return GSPng::Save(format, fn, dl->GetMapPointer(), m_size.x, m_size.y, dl->GetMapPitch(), compression, g_gs_device->IsRBSwapped());
+	return GSPng::Save(format, fn, dl->GetMapPointer(), m_size.x, m_size.y, dl->GetMapPitch(), compression, false);
 }
 
-void GSTexture::Swap(GSTexture* tex)
+const char* GSTexture::GetFormatName(Format format)
 {
-	std::swap(m_size, tex->m_size);
-	std::swap(m_mipmap_levels, tex->m_mipmap_levels);
-	std::swap(m_type, tex->m_type);
-	std::swap(m_format, tex->m_format);
-	std::swap(m_state, tex->m_state);
-	std::swap(m_needs_mipmaps_generated, tex->m_needs_mipmaps_generated);
-	std::swap(m_last_frame_used, tex->m_last_frame_used);
+	static constexpr const char* format_names[] = {
+		"Invalid",
+		"Color",
+		"HDRColor",
+		"DepthStencil",
+		"UNorm8",
+		"UInt16",
+		"UInt32",
+		"PrimID",
+		"BC1",
+		"BC2",
+		"BC3",
+		"BC7",
+	};
+	return format_names[(static_cast<u32>(format) < std::size(format_names)) ? static_cast<u32>(format) : 0];
 }
 
 u32 GSTexture::GetCompressedBytesPerBlock() const

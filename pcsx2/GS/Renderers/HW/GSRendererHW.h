@@ -1,17 +1,5 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2021 PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
@@ -27,6 +15,13 @@ MULTI_ISA_DEF(class GSRendererHWFunctions;)
 MULTI_ISA_DEF(void GSRendererHWPopulateFunctions(GSRendererHW& renderer);)
 
 class GSHwHack;
+
+enum ClearType
+{
+	NotClear,
+	NormalClear,
+	ClearWithDraw
+};
 
 class GSRendererHW : public GSRenderer
 {
@@ -45,10 +40,12 @@ private:
 
 	// Require special argument
 	bool OI_BlitFMV(GSTextureCache::Target* _rt, GSTextureCache::Source* t, const GSVector4i& r_draw);
-	bool TryGSMemClear();
+	bool TryGSMemClear(bool no_rt, bool preserve_rt, bool invalidate_rt, u32 rt_end_bp, bool no_ds,
+		bool preserve_z, bool invalidate_z, u32 ds_end_bp);
 	void ClearGSLocalMemory(const GSOffset& off, const GSVector4i& r, u32 vert_color);
 	bool DetectDoubleHalfClear(bool& no_rt, bool& no_ds);
 	bool DetectStripedDoubleClear(bool& no_rt, bool& no_ds);
+	bool DetectRedundantBufferClear(bool& no_rt, bool& no_ds, u32 fm_mask);
 	bool TryTargetClear(GSTextureCache::Target* rt, GSTextureCache::Target* ds, bool preserve_rt_color, bool preserve_depth);
 	void SetNewFRAME(u32 bp, u32 bw, u32 psm);
 	void SetNewZBUF(u32 bp, u32 psm);
@@ -58,17 +55,29 @@ private:
 	float alpha1(int L, int X0, int X1);
 	void SwSpriteRender();
 	bool CanUseSwSpriteRender();
-	bool IsConstantDirectWriteMemClear();
+	int IsScalingDraw(GSTextureCache::Source* src, bool no_gaps);
+	ClearType IsConstantDirectWriteMemClear();
 	u32 GetConstantDirectWriteMemClearColor() const;
+	u32 GetConstantDirectWriteMemClearDepth() const;
 	bool IsReallyDithered() const;
+	bool AreAnyPixelsDiscarded() const;
 	bool IsDiscardingDstColor();
-	bool PrimitiveCoversWithoutGaps();
+	bool IsDiscardingDstRGB();
+	bool IsDiscardingDstAlpha() const;
+	bool TextureCoversWithoutGapsNotEqual();
 
 	enum class CLUTDrawTestResult
 	{
 		NotCLUTDraw,
 		CLUTDrawOnCPU,
 		CLUTDrawOnGPU,
+	};
+
+	enum ShuffleProcessing
+	{
+		SHUFFLE_READ = 1,
+		SHUFFLE_WRITE,
+		SHUFFLE_READWRITE,
 	};
 
 	bool HasEEUpload(GSVector4i r);
@@ -84,15 +93,17 @@ private:
 
 	void ResetStates();
 	void SetupIA(float target_scale, float sx, float sy);
-	void EmulateTextureShuffleAndFbmask(GSTextureCache::Target* rt);
+	void EmulateTextureShuffleAndFbmask(GSTextureCache::Target* rt, GSTextureCache::Source* tex);
 	bool EmulateChannelShuffle(GSTextureCache::Target* src, bool test_only);
-	void EmulateBlending(int rt_alpha_min, int rt_alpha_max, bool& DATE_PRIMID, bool& DATE_BARRIER, bool& blending_alpha_pass);
+	void EmulateBlending(int rt_alpha_min, int rt_alpha_max, const bool DATE, bool& DATE_PRIMID, bool& DATE_BARRIER, GSTextureCache::Target* rt,
+		bool can_scale_rt_alpha, bool& new_rt_alpha_scale);
+	void CleanupDraw(bool invalidate_temp_src);
 
 	void EmulateTextureSampler(const GSTextureCache::Target* rt, const GSTextureCache::Target* ds,
-		GSTextureCache::Source* tex, const TextureMinMaxResult& tmm, GSTexture*& src_copy);
+		GSTextureCache::Source* tex, const TextureMinMaxResult& tmm, GSDevice::RecycledTexture& src_copy);
 	void HandleTextureHazards(const GSTextureCache::Target* rt, const GSTextureCache::Target* ds,
 		const GSTextureCache::Source* tex, const TextureMinMaxResult& tmm, GSTextureCache::SourceRegion& source_region,
-		bool& target_region, GSVector2i& unscaled_size, float& scale, GSTexture*& src_copy);
+		bool& target_region, GSVector2i& unscaled_size, float& scale, GSDevice::RecycledTexture& src_copy);
 	bool CanUseTexIsFB(const GSTextureCache::Target* rt, const GSTextureCache::Source* tex,
 		const TextureMinMaxResult& tmm);
 
@@ -100,9 +111,10 @@ private:
 	void EmulateATST(float& AREF, GSHWDrawConfig::PSSelector& ps, bool pass_2);
 
 	void SetTCOffset();
-
+	bool NextDrawHDR() const;
 	bool IsPossibleChannelShuffle() const;
-	bool IsSplitTextureShuffle();
+	bool NextDrawMatchesShuffle() const;
+	bool IsSplitTextureShuffle(GSTextureCache::Target* rt);
 	GSVector4i GetSplitTextureShuffleDrawRect() const;
 	u32 GetEffectiveTextureShuffleFbmsk() const;
 
@@ -115,11 +127,14 @@ private:
 	bool ContinueSplitClear();
 	void FinishSplitClear();
 
-	GSVector4i m_r = {};
-	
+	bool IsRTWritten();
+	bool IsDepthAlwaysPassing();
+	bool IsUsingCsInBlend();
+	bool IsUsingAsInBlend();
+
 	// We modify some of the context registers to optimize away unnecessary operations.
 	// Instead of messing with the real context, we copy them and use those instead.
-	struct
+	struct HWCachedCtx
 	{
 		GIFRegTEX0 TEX0;
 		GIFRegCLAMP CLAMP;
@@ -139,7 +154,7 @@ private:
 
 			return ZBUF.ZMSK == 0 && TEST.ZTE != 0; // ZTE == 0 is bug on the real hardware, write is blocked then
 		}
-	} m_cached_ctx;
+	};
 
 	// CRC Hacks
 	bool IsBadFrame();
@@ -153,15 +168,17 @@ private:
 	u32 m_split_texture_shuffle_pages_high = 0;
 	u32 m_split_texture_shuffle_start_FBP = 0;
 	u32 m_split_texture_shuffle_start_TBP = 0;
+	u32 m_split_texture_shuffle_fbw = 0;
 
 	u32 m_last_channel_shuffle_fbmsk = 0;
+	u32 m_last_channel_shuffle_fbp = 0;
+	u32 m_last_channel_shuffle_end_block = 0;
 
 	GIFRegFRAME m_split_clear_start = {};
 	GIFRegZBUF m_split_clear_start_Z = {};
 	u32 m_split_clear_pages = 0; // if zero, inactive
 	u32 m_split_clear_color = 0;
 
-	std::optional<bool> m_primitive_covers_without_gaps;
 	bool m_userhacks_tcoffset = false;
 	float m_userhacks_tcoffset_x = 0.0f;
 	float m_userhacks_tcoffset_y = 0.0f;
@@ -169,6 +186,7 @@ private:
 	GSVector2i m_lod = {}; // Min & Max level of detail
 
 	GSHWDrawConfig m_conf = {};
+	HWCachedCtx m_cached_ctx;
 
 	// software sprite renderer state
 	std::vector<GSVertexSW> m_sw_vertex_buffer;
@@ -180,24 +198,23 @@ public:
 	virtual ~GSRendererHW() override;
 
 	__fi static GSRendererHW* GetInstance() { return static_cast<GSRendererHW*>(g_gs_renderer.get()); }
-
+	__fi HWCachedCtx* GetCachedCtx() { return &m_cached_ctx; }
 	void Destroy() override;
 
-	void SetGameCRC(u32 crc) override;
-	void UpdateCRCHacks() override;
+	void UpdateRenderFixes() override;
 
 	bool CanUpscale() override;
 	float GetUpscaleMultiplier() override;
 	void Lines2Sprites();
 	bool VerifyIndices();
 	void ExpandLineIndices();
-	void ConvertSpriteTextureShuffle(bool& write_ba, bool& read_ba);
+	void ConvertSpriteTextureShuffle(u32& process_rg, u32& process_ba, bool& shuffle_across, GSTextureCache::Target* rt, GSTextureCache::Source* tex);
 	GSVector4 RealignTargetTextureCoordinate(const GSTextureCache::Source* tex);
 	GSVector4i ComputeBoundingBox(const GSVector2i& rtsize, float rtscale);
 	void MergeSprite(GSTextureCache::Source* tex);
 	float GetTextureScaleFactor() override;
 	GSVector2i GetValidSize(const GSTextureCache::Source* tex = nullptr);
-	GSVector2i GetTargetSize(const GSTextureCache::Source* tex = nullptr);
+	GSVector2i GetTargetSize(const GSTextureCache::Source* tex = nullptr, const bool can_expand = true);
 
 	void Reset(bool hardware_reset) override;
 	void UpdateSettings(const Pcsx2Config::GSOptions& old_config) override;
@@ -210,15 +227,24 @@ public:
 	void Move() override;
 	void Draw() override;
 
-	void PurgeTextureCache() override;
+	void PurgeTextureCache(bool sources, bool targets, bool hash_cache) override;
 	void ReadbackTextureCache() override;
 	GSTexture* LookupPaletteSource(u32 CBP, u32 CPSM, u32 CBW, GSVector2i& offset, float* scale, const GSVector2i& size) override;
 
 	/// Called by the texture cache to know for certain whether there is a channel shuffle.
 	bool TestChannelShuffle(GSTextureCache::Target* src);
 
+	/// Returns true if the Frame and TEX0 are sharing channels
+	bool ChannelsSharedTEX0FRAME();
+
 	/// Returns true if the specified texture address matches the frame or Z buffer.
-	bool IsTBPFrameOrZ(u32 tbp) const;
+	bool IsTBPFrameOrZ(u32 tbp, bool frame_only = false);
+
+	/// Returns true if the draws appear to be a manual deswizzle.
+	void HandleManualDeswizzle();
+
+	/// Offsets the current draw, used for RT-in-RT. Offsets are relative to the *current* FBP, not the new FBP.
+	void OffsetDraw(s32 fbp_offset, s32 zbp_offset, s32 xoffset, s32 yoffset);
 
 	/// Replaces vertices with the specified fullscreen quad.
 	void ReplaceVerticesWithSprite(const GSVector4i& unscaled_rect, const GSVector4i& unscaled_uv_rect,

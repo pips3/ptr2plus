@@ -10,7 +10,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@actions/github": "^5.0.0",
+    "@octokit/plugin-retry": "^3.0.9",
+    "@octokit/plugin-throttling": "^9.4.0",
+    "@octokit/rest": "^21.1.1",
     "discord.js": "^13.2.0"
   }
 }

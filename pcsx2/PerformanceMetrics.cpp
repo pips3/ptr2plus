@@ -1,19 +1,5 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2023 PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
-
-#include "PrecompiledHeader.h"
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #include <chrono>
 #include <vector>
@@ -22,7 +8,6 @@
 #include "common/Threading.h"
 
 #include "PerformanceMetrics.h"
-#include "System.h"
 
 #include "GS.h"
 #include "GS/GSCapture.h"
@@ -30,9 +15,8 @@
 #include "MTVU.h"
 #include "VMManager.h"
 
-static const float UPDATE_INTERVAL = 0.5f;
+static const float UPDATE_INTERVAL = 0.25f;
 
-static float s_vertical_frequency = 0.0f;
 static float s_fps = 0.0f;
 static float s_internal_fps = 0.0f;
 static float s_minimum_frame_time = 0.0f;
@@ -268,11 +252,6 @@ void PerformanceMetrics::SetGSSWThread(u32 index, Threading::ThreadHandle thread
 	s_gs_sw_threads[index].handle = std::move(thread);
 }
 
-void PerformanceMetrics::SetVerticalFrequency(float rate)
-{
-	s_vertical_frequency = rate;
-}
-
 u64 PerformanceMetrics::GetFrameNumber()
 {
 	return s_frame_number;
@@ -300,7 +279,7 @@ float PerformanceMetrics::GetInternalFPS()
 
 float PerformanceMetrics::GetSpeed()
 {
-	return (s_fps / s_vertical_frequency) * 100.0;
+	return (s_fps / VMManager::GetFrameRate()) * 100.0;
 }
 
 float PerformanceMetrics::GetAverageFrameTime()

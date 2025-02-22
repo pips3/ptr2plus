@@ -1,17 +1,5 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2021 PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
@@ -23,7 +11,6 @@
 #include "GS/Renderers/Common/GSVertexTrace.h"
 #include "GS/Renderers/Common/GSDevice.h"
 #include "GS/GSVector.h"
-#include "GSCrc.h"
 #include "GSAlignedClass.h"
 
 class GSDumpBase;
@@ -135,6 +122,8 @@ private:
 	} m_tr;
 
 protected:
+	static constexpr int INVALID_ALPHA_MINMAX = 500;
+
 	GSVertex m_v = {};
 	float m_q = 1.0f;
 	GSVector4i m_scissor_cull_min = {};
@@ -165,7 +154,7 @@ protected:
 	bool IsAutoFlushDraw(u32 prim);
 	template<u32 prim, bool index_swap>
 	void HandleAutoFlush();
-	void CLUTAutoFlush(u32 prim);
+	void CheckCLUTValidity(u32 prim);
 
 	template <u32 prim, bool auto_flush, bool index_swap>
 	void VertexKick(u32 skip);
@@ -176,7 +165,7 @@ protected:
 	GSVertexTrace::VertexAlpha& GetAlphaMinMax()
 	{
 		if (!m_vt.m_alpha.valid)
-			CalcAlphaMinMax(0, 255);
+			CalcAlphaMinMax(0, INVALID_ALPHA_MINMAX);
 		return m_vt.m_alpha;
 	}
 	struct TextureMinMaxResult
@@ -194,12 +183,13 @@ protected:
 		u8 uses_boundary;    ///< Whether or not the usage touches the left, top, right, or bottom edge (and therefore needs wrap modes preserved)
 	};
 	TextureMinMaxResult GetTextureMinMax(GIFRegTEX0 TEX0, GIFRegCLAMP CLAMP, bool linear, bool clamp_to_tsize);
-	bool TryAlphaTest(u32& fm, const u32 fm_mask, u32& zm);
+	bool TryAlphaTest(u32& fm, u32& zm);
 	bool IsOpaque();
 	bool IsMipMapDraw();
 	bool IsMipMapActive();
 	bool IsCoverageAlpha();
 	void CalcAlphaMinMax(const int tex_min, const int tex_max);
+	void CorrectATEAlphaMinMax(const u32 atst, const int aref);
 
 public:
 	struct GSUploadQueue
@@ -207,6 +197,15 @@ public:
 		GIFRegBITBLTBUF blit;
 		GSVector4i rect;
 		int draw;
+		bool zero_clear;
+	};
+
+	enum NoGapsType
+	{
+		Uninitialized = 0,
+		GapsFound,
+		SpriteNoGaps,
+		FullCover,
 	};
 
 	GIFPath m_path[4] = {};
@@ -218,8 +217,6 @@ public:
 	const GSDrawingEnvironment* m_draw_env = &m_env;
 	GSDrawingContext* m_context = nullptr;
 	GSVector4i temp_draw_rect = {};
-	u32 m_crc = 0;
-	CRC::Game m_game = {};
 	std::unique_ptr<GSDumpBase> m_dump;
 	bool m_scissor_invalid = false;
 	bool m_nativeres = false;
@@ -231,6 +228,9 @@ public:
 	u32 m_dirty_gs_regs = 0;
 	int m_backed_up_ctx = 0;
 	std::vector<GSUploadQueue> m_draw_transfers;
+	NoGapsType m_primitive_covers_without_gaps;
+	GSVector4i m_r = {};
+	GSVector4i m_r_no_scissor = {};
 
 	static int s_n;
 	static int s_last_transfer_draw_n;
@@ -385,18 +385,20 @@ public:
 	virtual void UpdateSettings(const Pcsx2Config::GSOptions& old_config);
 
 	void Flush(GSFlushReason reason);
+	u32 CalcMask(int exp, int max_exp);
 	void FlushPrim();
 	bool TestDrawChanged();
 	void FlushWrite();
 	virtual void Draw() = 0;
-	virtual void PurgePool();
-	virtual void PurgeTextureCache();
+	virtual void PurgeTextureCache(bool sources, bool targets, bool hash_cache);
 	virtual void ReadbackTextureCache();
 	virtual void InvalidateVideoMem(const GIFRegBITBLTBUF& BITBLTBUF, const GSVector4i& r) {}
 	virtual void InvalidateLocalMem(const GIFRegBITBLTBUF& BITBLTBUF, const GSVector4i& r, bool clut = false) {}
 
 	virtual void Move();
 
+	GSVector4i GetTEX0Rect();
+	void CheckWriteOverlap(bool req_write, bool req_read);
 	void Write(const u8* mem, int len);
 	void Read(u8* mem, int len);
 	void InitReadFIFO(u8* mem, int len);
@@ -409,17 +411,15 @@ public:
 	int Freeze(freezeData* fd, bool sizeonly);
 	int Defrost(const freezeData* fd);
 
-	u32 GetGameCRC() const { return m_crc; }
-	virtual void SetGameCRC(u32 crc);
-	virtual void UpdateCRCHacks();
-
 	u8* GetRegsMem() const { return reinterpret_cast<u8*>(m_regs); }
 	void SetRegsMem(u8* basemem) { m_regs = reinterpret_cast<GSPrivRegSet*>(basemem); }
 
 	void DumpVertices(const std::string& filename);
 
-	bool TrianglesAreQuads() const;
+	bool TrianglesAreQuads(bool shuffle_check = false) const;
 	PRIM_OVERLAP PrimitiveOverlap();
+	bool SpriteDrawWithoutGaps();
+	void CalculatePrimitiveCoversWithoutGaps();
 	GIFRegTEX0 GetTex0Layer(u32 lod);
 };
 

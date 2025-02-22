@@ -1,17 +1,5 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2010  PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 /*
 	EE physical map :
@@ -28,8 +16,6 @@
 	vtlb/vmap supports mapping to either of these locations, or some other (externaly) specified address.
 */
 
-#include "PrecompiledHeader.h"
-
 #include "Common.h"
 #include "vtlb.h"
 #include "COP0.h"
@@ -39,9 +25,11 @@
 #include "VMManager.h"
 
 #include "common/BitUtils.h"
+#include "common/Error.h"
 
-#include "fmt/core.h"
+#include "fmt/format.h"
 
+#include <bit>
 #include <map>
 #include <unordered_set>
 #include <unordered_map>
@@ -57,8 +45,6 @@ using namespace vtlb_private;
 namespace vtlb_private
 {
 	alignas(64) MapData vtlbdata;
-
-	static bool PageFaultHandler(const PageFaultInfo& info);
 } // namespace vtlb_private
 
 static vtlbHandler vtlbHandlerCount = 0;
@@ -123,39 +109,114 @@ vtlb_private::VTLBVirtual::VTLBVirtual(VTLBPhysical phys, u32 paddr, u32 vaddr)
 	}
 }
 
+#if defined(_M_X86)
+#include <immintrin.h>
+#elif defined(_M_ARM64)
+#if defined(_MSC_VER) && !defined(__clang__)
+#include <arm64_neon.h>
+#else
+#include <arm_neon.h>
+#endif
+#endif
+
 __inline int CheckCache(u32 addr)
 {
-	u32 mask;
-
+	// Check if the cache is enabled
 	if (((cpuRegs.CP0.n.Config >> 16) & 0x1) == 0)
 	{
-		//DevCon.Warning("Data Cache Disabled! %x", cpuRegs.CP0.n.Config);
-		return false; //
+		return false;
 	}
 
-	for (int i = 1; i < 48; i++)
+	size_t i = 0;
+	const size_t size = cachedTlbs.count;
+
+#if defined(_M_X86)
+	const int stride = 4;
+
+	const __m128i addr_vec = _mm_set1_epi32(addr);
+
+	for (; i + stride <= size; i += stride)
 	{
-		if (((tlb[i].EntryLo1 & 0x38) >> 3) == 0x3)
-		{
-			mask = tlb[i].PageMask;
+		const __m128i pfn1_vec = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&cachedTlbs.PFN1s[i]));
+		const __m128i pfn0_vec = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&cachedTlbs.PFN0s[i]));
+		const __m128i mask_vec = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&cachedTlbs.PageMasks[i]));
 
-			if ((addr >= tlb[i].PFN1) && (addr <= tlb[i].PFN1 + mask))
-			{
-				//DevCon.Warning("Yay! Cache check cache addr=%x, mask=%x, addr+mask=%x, VPN2=%x PFN0=%x", addr, mask, (addr & mask), tlb[i].VPN2, tlb[i].PFN0);
-				return true;
-			}
-		}
-		if (((tlb[i].EntryLo0 & 0x38) >> 3) == 0x3)
-		{
-			mask = tlb[i].PageMask;
+		const __m128i cached1_vec = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&cachedTlbs.CacheEnabled1[i]));
+		const __m128i cached0_vec = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&cachedTlbs.CacheEnabled0[i]));
 
-			if ((addr >= tlb[i].PFN0) && (addr <= tlb[i].PFN0 + mask))
-			{
-				//DevCon.Warning("Yay! Cache check cache addr=%x, mask=%x, addr+mask=%x, VPN2=%x PFN0=%x", addr, mask, (addr & mask), tlb[i].VPN2, tlb[i].PFN0);
-				return true;
-			}
+		const __m128i pfn1_end_vec = _mm_add_epi32(pfn1_vec, mask_vec);
+		const __m128i pfn0_end_vec = _mm_add_epi32(pfn0_vec, mask_vec);
+
+		// pfn0 <= addr
+		const __m128i gteLowerBound0 = _mm_or_si128(
+			_mm_cmpgt_epi32(addr_vec, pfn0_vec),
+			_mm_cmpeq_epi32(addr_vec, pfn0_vec));
+		// pfn0 + mask >= addr
+		const __m128i gteUpperBound0 = _mm_or_si128(
+			_mm_cmpgt_epi32(pfn0_end_vec, addr_vec),
+			_mm_cmpeq_epi32(pfn0_end_vec, addr_vec));
+
+		// pfn1 <= addr
+		const __m128i gteUpperBound1 = _mm_or_si128(
+			_mm_cmpgt_epi32(pfn1_end_vec, addr_vec),
+			_mm_cmpeq_epi32(pfn1_end_vec, addr_vec));
+		// pfn1 + mask >= addr
+		const __m128i gteLowerBound1 = _mm_or_si128(
+			_mm_cmpgt_epi32(addr_vec, pfn1_vec),
+			_mm_cmpeq_epi32(addr_vec, pfn1_vec));
+
+		// pfn0 <= addr <= pfn0 + mask
+		__m128i cmp0 = _mm_and_si128(gteLowerBound0, gteUpperBound0);
+		// pfn1 <= addr <= pfn1 + mask
+		__m128i cmp1 = _mm_and_si128(gteLowerBound1, gteUpperBound1);
+
+		cmp1 = _mm_and_si128(cmp1, cached1_vec);
+		cmp0 = _mm_and_si128(cmp0, cached0_vec);
+
+		const __m128i cmp = _mm_or_si128(cmp1, cmp0);
+
+		if (!_mm_testz_si128(cmp, cmp))
+		{
+			return true;
 		}
 	}
+#elif defined(_M_ARM64)
+	const int stride = 4;
+
+	const uint32x4_t addr_vec = vld1q_dup_u32(&addr);
+
+	for (; i + stride <= size; i += stride)
+	{
+		const uint32x4_t pfn1_vec = vld1q_u32(&cachedTlbs.PFN1s[i]);
+		const uint32x4_t pfn0_vec = vld1q_u32(&cachedTlbs.PFN0s[i]);
+		const uint32x4_t mask_vec = vld1q_u32(&cachedTlbs.PageMasks[i]);
+
+		const uint32x4_t cached1_vec = vld1q_u32(&cachedTlbs.CacheEnabled1[i]);
+		const uint32x4_t cached0_vec = vld1q_u32(&cachedTlbs.CacheEnabled0[i]);
+
+		const uint32x4_t pfn1_end_vec = vaddq_u32(pfn1_vec, mask_vec);
+		const uint32x4_t pfn0_end_vec = vaddq_u32(pfn0_vec, mask_vec);
+
+		const uint32x4_t cmp1 = vandq_u32(vcgeq_u32(addr_vec, pfn1_vec), vcleq_u32(addr_vec, pfn1_end_vec));
+		const uint32x4_t cmp0 = vandq_u32(vcgeq_u32(addr_vec, pfn0_vec), vcleq_u32(addr_vec, pfn0_end_vec));
+
+		const uint32x4_t lanes_enabled = vorrq_u32(vandq_u32(cached1_vec, cmp1), vandq_u32(cached0_vec, cmp0));
+
+		const uint32x2_t tmp = vorr_u32(vget_low_u32(lanes_enabled), vget_high_u32(lanes_enabled));
+		if (vget_lane_u32(vpmax_u32(tmp, tmp), 0))
+			return true;
+	}
+#endif
+	for (; i < size; i++)
+	{
+		const u32 mask = cachedTlbs.PageMasks[i];
+		if ((cachedTlbs.CacheEnabled1[i] && addr >= cachedTlbs.PFN1s[i] && addr <= cachedTlbs.PFN1s[i] + mask) ||
+			(cachedTlbs.CacheEnabled0[i] && addr >= cachedTlbs.PFN0s[i] && addr <= cachedTlbs.PFN0s[i] + mask))
+		{
+			return true;
+		}
+	}
+
 	return false;
 }
 // --------------------------------------------------------------------------------------
@@ -574,12 +635,35 @@ static void vtlbUnmappedVWriteSm(u32 addr, OperandType data) { vtlb_Miss(addr, 1
 static void TAKES_R128 vtlbUnmappedVWriteLg(u32 addr, r128 data) { vtlb_Miss(addr, 1); }
 
 template <typename OperandType>
-static OperandType vtlbUnmappedPReadSm(u32 addr) { vtlb_BusError(addr, 0); return 0; }
-static RETURNS_R128 vtlbUnmappedPReadLg(u32 addr) { vtlb_BusError(addr, 0); return r128_zero(); }
+static OperandType vtlbUnmappedPReadSm(u32 addr) {
+	vtlb_BusError(addr, 0);
+	if(!CHECK_EEREC && CHECK_CACHE && CheckCache(addr)){
+		switch (sizeof(OperandType)) {
+			case 1: return readCache8(addr, false);
+			case 2: return readCache16(addr, false);
+			case 4: return readCache32(addr, false);
+			case 8: return readCache64(addr, false);
+			default: pxFail("Invalid data size for unmapped physical cache load");
+		}
+	}
+	return 0;
+}
+static RETURNS_R128 vtlbUnmappedPReadLg(u32 addr) { vtlb_BusError(addr, 0); if(!CHECK_EEREC && CHECK_CACHE && CheckCache(addr)){ return readCache128(addr, false); } return r128_zero(); }
 
 template <typename OperandType>
-static void vtlbUnmappedPWriteSm(u32 addr, OperandType data) { vtlb_BusError(addr, 1); }
-static void TAKES_R128 vtlbUnmappedPWriteLg(u32 addr, r128 data) { vtlb_BusError(addr, 1); }
+static void vtlbUnmappedPWriteSm(u32 addr, OperandType data) {
+	vtlb_BusError(addr, 1);
+	if (!CHECK_EEREC && CHECK_CACHE && CheckCache(addr)) {
+		switch (sizeof(OperandType)) {
+			case 1: writeCache8(addr, data, false); break;
+			case 2: writeCache16(addr, data, false); break;
+			case 4: writeCache32(addr, data, false); break;
+			case 8: writeCache64(addr, data, false); break;
+			default: pxFail("Invalid data size for unmapped physical cache store");
+		}
+	}
+}
+static void TAKES_R128 vtlbUnmappedPWriteLg(u32 addr, r128 data) { vtlb_BusError(addr, 1); if(!CHECK_EEREC && CHECK_CACHE && CheckCache(addr)) { writeCache128(addr, reinterpret_cast<mem128_t*>(&data) /*Safe??*/, false); }}
 // clang-format on
 
 // --------------------------------------------------------------------------------------
@@ -591,57 +675,57 @@ static void TAKES_R128 vtlbUnmappedPWriteLg(u32 addr, r128 data) { vtlb_BusError
 
 static mem8_t vtlbDefaultPhyRead8(u32 addr)
 {
-	pxFailDev(fmt::format("(VTLB) Attempted read8 from unmapped physical address @ 0x{:08X}.", addr).c_str());
+	pxFail(fmt::format("(VTLB) Attempted read8 from unmapped physical address @ 0x{:08X}.", addr).c_str());
 	return 0;
 }
 
 static mem16_t vtlbDefaultPhyRead16(u32 addr)
 {
-	pxFailDev(fmt::format("(VTLB) Attempted read16 from unmapped physical address @ 0x{:08X}.", addr).c_str());
+	pxFail(fmt::format("(VTLB) Attempted read16 from unmapped physical address @ 0x{:08X}.", addr).c_str());
 	return 0;
 }
 
 static mem32_t vtlbDefaultPhyRead32(u32 addr)
 {
-	pxFailDev(fmt::format("(VTLB) Attempted read32 from unmapped physical address @ 0x{:08X}.", addr).c_str());
+	pxFail(fmt::format("(VTLB) Attempted read32 from unmapped physical address @ 0x{:08X}.", addr).c_str());
 	return 0;
 }
 
 static mem64_t vtlbDefaultPhyRead64(u32 addr)
 {
-	pxFailDev(fmt::format("(VTLB) Attempted read64 from unmapped physical address @ 0x{:08X}.", addr).c_str());
+	pxFail(fmt::format("(VTLB) Attempted read64 from unmapped physical address @ 0x{:08X}.", addr).c_str());
 	return 0;
 }
 
 static RETURNS_R128 vtlbDefaultPhyRead128(u32 addr)
 {
-	pxFailDev(fmt::format("(VTLB) Attempted read128 from unmapped physical address @ 0x{:08X}.", addr).c_str());
+	pxFail(fmt::format("(VTLB) Attempted read128 from unmapped physical address @ 0x{:08X}.", addr).c_str());
 	return r128_zero();
 }
 
 static void vtlbDefaultPhyWrite8(u32 addr, mem8_t data)
 {
-	pxFailDev(fmt::format("(VTLB) Attempted write8 to unmapped physical address @ 0x{:08X}.", addr).c_str());
+	pxFail(fmt::format("(VTLB) Attempted write8 to unmapped physical address @ 0x{:08X}.", addr).c_str());
 }
 
 static void vtlbDefaultPhyWrite16(u32 addr, mem16_t data)
 {
-	pxFailDev(fmt::format("(VTLB) Attempted write16 to unmapped physical address @ 0x{:08X}.", addr).c_str());
+	pxFail(fmt::format("(VTLB) Attempted write16 to unmapped physical address @ 0x{:08X}.", addr).c_str());
 }
 
 static void vtlbDefaultPhyWrite32(u32 addr, mem32_t data)
 {
-	pxFailDev(fmt::format("(VTLB) Attempted write32 to unmapped physical address @ 0x{:08X}.", addr).c_str());
+	pxFail(fmt::format("(VTLB) Attempted write32 to unmapped physical address @ 0x{:08X}.", addr).c_str());
 }
 
 static void vtlbDefaultPhyWrite64(u32 addr, mem64_t data)
 {
-	pxFailDev(fmt::format("(VTLB) Attempted write64 to unmapped physical address @ 0x{:08X}.", addr).c_str());
+	pxFail(fmt::format("(VTLB) Attempted write64 to unmapped physical address @ 0x{:08X}.", addr).c_str());
 }
 
 static void TAKES_R128 vtlbDefaultPhyWrite128(u32 addr, r128 data)
 {
-	pxFailDev(fmt::format("(VTLB) Attempted write128 to unmapped physical address @ 0x{:08X}.", addr).c_str());
+	pxFail(fmt::format("(VTLB) Attempted write128 to unmapped physical address @ 0x{:08X}.", addr).c_str());
 }
 
 // ===========================================================================================
@@ -677,7 +761,7 @@ __ri void vtlb_ReassignHandler(vtlbHandler rv,
 
 vtlbHandler vtlb_NewHandler()
 {
-	pxAssertDev(vtlbHandlerCount < VTLB_HANDLER_ITEMS, "VTLB handler count overflow!");
+	pxAssertMsg(vtlbHandlerCount < VTLB_HANDLER_ITEMS, "VTLB handler count overflow!");
 	return vtlbHandlerCount++;
 }
 
@@ -842,13 +926,12 @@ static bool vtlb_IsHostCoalesced(u32 page)
 static bool vtlb_GetMainMemoryOffsetFromPtr(uptr ptr, u32* mainmem_offset, u32* mainmem_size, PageProtectionMode* prot)
 {
 	const uptr page_end = ptr + VTLB_PAGE_SIZE;
-	SysMainMemory& vmmem = GetVmMemory();
 
 	// EE memory and ROMs.
 	if (ptr >= (uptr)eeMem->Main && page_end <= (uptr)eeMem->ZeroRead)
 	{
 		const u32 eemem_offset = static_cast<u32>(ptr - (uptr)eeMem->Main);
-		const bool writeable = ((eemem_offset < Ps2MemSize::MainRam) ? (mmap_GetRamPageInfo(eemem_offset) != ProtMode_Write) : true);
+		const bool writeable = ((eemem_offset < Ps2MemSize::ExposedRam) ? (mmap_GetRamPageInfo(eemem_offset) != ProtMode_Write) : true);
 		*mainmem_offset = (eemem_offset + HostMemoryMap::EEmemOffset);
 		*mainmem_size = (offsetof(EEVM_MemoryAllocMess, ZeroRead) - eemem_offset);
 		*prot = PageProtectionMode().Read().Write(writeable);
@@ -867,11 +950,11 @@ static bool vtlb_GetMainMemoryOffsetFromPtr(uptr ptr, u32* mainmem_offset, u32* 
 
 	// VU memory - this includes both data and code for VU0/VU1.
 	// Practically speaking, this is only data, because the code goes through a handler.
-	if (ptr >= (uptr)vmmem.VUMemory().GetPtr() && page_end <= (uptr)vmmem.VUMemory().GetPtrEnd())
+	if (ptr >= (uptr)SysMemory::GetVUMem() && page_end <= (uptr)SysMemory::GetVUMemEnd())
 	{
-		const u32 vumem_offset = static_cast<u32>(ptr - (uptr)vmmem.VUMemory().GetPtr());
+		const u32 vumem_offset = static_cast<u32>(ptr - (uptr)SysMemory::GetVUMem());
 		*mainmem_offset = vumem_offset + HostMemoryMap::VUmemOffset;
-		*mainmem_size = vmmem.VUMemory().GetSize() - vumem_offset;
+		*mainmem_size = HostMemoryMap::VUmemSize - vumem_offset;
 		*prot = PageProtectionMode().Read().Write();
 		return true;
 	}
@@ -932,7 +1015,7 @@ static void vtlb_CreateFastmemMapping(u32 vaddr, u32 mainmem_offset, const PageP
 		const u32 host_page = vtlb_HostPage(page);
 		const u32 host_offset = vtlb_HostAlignOffset(mainmem_offset);
 
-		if (!s_fastmem_area->Map(GetVmMemory().MainMemory()->GetFileHandle(), host_offset,
+		if (!s_fastmem_area->Map(SysMemory::GetDataFileHandle(), host_offset,
 				s_fastmem_area->PagePointer(host_page), __pagesize, mode))
 		{
 			Console.Error("Failed to map vaddr %08X to mainmem offset %08X", vtlb_HostAlignOffset(vaddr), host_offset);
@@ -991,13 +1074,13 @@ static void vtlb_RemoveFastmemMappings()
 		if (s_fastmem_virtual_mapping[page] == NO_FASTMEM_MAPPING)
 			continue;
 
+		if (vtlb_IsHostCoalesced(page))
+		{
+			if (!s_fastmem_area->Unmap(s_fastmem_area->PagePointer(vtlb_HostPage(page)), __pagesize))
+				Console.Error("Failed to unmap vaddr %08X", page * __pagesize);
+		}
+
 		s_fastmem_virtual_mapping[page] = NO_FASTMEM_MAPPING;
-
-		if (!vtlb_IsHostAligned(page << VTLB_PAGE_BITS))
-			continue;
-
-		if (!s_fastmem_area->Unmap(s_fastmem_area->PagePointer(vtlb_HostPage(page)), __pagesize))
-			Console.Error("Failed to unmap vaddr %08X", page * __pagesize);
 	}
 
 	s_fastmem_physical_mapping.clear();
@@ -1023,7 +1106,7 @@ bool vtlb_ResolveFastmemMapping(uptr* addr)
 
 	const u32 mainmem_offset = s_fastmem_virtual_mapping[vpage] + (vaddr & VTLB_PAGE_MASK);
 	FASTMEM_LOG("Resolved %p (vaddr %08X) to mainmem offset %08X", uaddr, vaddr, mainmem_offset);
-	*addr = ((uptr)GetVmMemory().MainMemory()->GetBase()) + mainmem_offset;
+	*addr = ((uptr)SysMemory::GetDataPtr(0)) + mainmem_offset;
 	return true;
 }
 
@@ -1038,7 +1121,7 @@ bool vtlb_GetGuestAddress(uptr host_addr, u32* guest_addr)
 	return true;
 }
 
-void vtlb_UpdateFastmemProtection(u32 paddr, u32 size, const PageProtectionMode& prot)
+void vtlb_UpdateFastmemProtection(u32 paddr, u32 size, PageProtectionMode prot)
 {
 	if (!CHECK_FASTMEM)
 		return;
@@ -1245,9 +1328,6 @@ void vtlb_Init()
 	// The LUT is only used for 1 game so we allocate it only when the gamefix is enabled (save 4MB)
 	if (EmuConfig.Gamefixes.GoemonTlbHack)
 		vtlb_Alloc_Ppmap();
-
-	extern void vtlb_dynarec_init();
-	vtlb_dynarec_init();
 }
 
 // vtlb_Reset -- Performs a COP0-level reset of the PS2's TLB.
@@ -1296,73 +1376,53 @@ void vtlb_ResetFastmem()
 	}
 }
 
-static constexpr size_t VMAP_SIZE = sizeof(VTLBVirtual) * VTLB_VMAP_ITEMS;
-
 // Reserves the vtlb core allocation used by various emulation components!
 // [TODO] basemem - request allocating memory at the specified virtual location, which can allow
 //    for easier debugging and/or 3rd party cheat programs.  If 0, the operating system
 //    default is used.
 bool vtlb_Core_Alloc()
 {
-	// Can't return regions to the bump allocator
-	static VTLBVirtual* vmap = nullptr;
-	if (!vmap)
+	static constexpr size_t VMAP_SIZE = sizeof(VTLBVirtual) * VTLB_VMAP_ITEMS;
+	static_assert(HostMemoryMap::VTLBVirtualMapSize == VMAP_SIZE);
+
+	pxAssert(!vtlbdata.vmap && !vtlbdata.fastmem_base && !s_fastmem_area);
+
+	vtlbdata.vmap = reinterpret_cast<VTLBVirtual*>(SysMemory::GetVTLBVirtualMap());
+
+	pxAssert(!s_fastmem_area);
+	s_fastmem_area = SharedMemoryMappingArea::Create(FASTMEM_AREA_SIZE);
+	if (!s_fastmem_area)
 	{
-		vmap = (VTLBVirtual*)GetVmMemory().BumpAllocator().Alloc(VMAP_SIZE);
-		if (!vmap)
-		{
-			Host::ReportErrorAsync("Error", "Failed to allocate vtlb vmap");
-			return false;
-		}
+		Host::ReportErrorAsync("Error", "Failed to allocate fastmem area");
+		return false;
 	}
 
-	if (!vtlbdata.vmap)
-	{
-		HostSys::MemProtect(vmap, VMAP_SIZE, PageProtectionMode().Read().Write());
-		vtlbdata.vmap = vmap;
-	}
+	s_fastmem_virtual_mapping.resize(FASTMEM_PAGE_COUNT, NO_FASTMEM_MAPPING);
+	vtlbdata.fastmem_base = (uptr)s_fastmem_area->BasePointer();
+	DevCon.WriteLn(Color_StrongGreen, "Fastmem area: %p - %p",
+		vtlbdata.fastmem_base, vtlbdata.fastmem_base + (FASTMEM_AREA_SIZE - 1));
 
-	if (!vtlbdata.fastmem_base)
+	Error error;
+	if (!PageFaultHandler::Install(&error))
 	{
-		pxAssert(!s_fastmem_area);
-		s_fastmem_area = SharedMemoryMappingArea::Create(FASTMEM_AREA_SIZE);
-		if (!s_fastmem_area)
-		{
-			Host::ReportErrorAsync("Error", "Failed to allocate fastmem area");
-			return false;
-		}
-
-		s_fastmem_virtual_mapping.resize(FASTMEM_PAGE_COUNT, NO_FASTMEM_MAPPING);
-		vtlbdata.fastmem_base = (uptr)s_fastmem_area->BasePointer();
-		Console.WriteLn(Color_StrongGreen, "Fastmem area: %p - %p",
-			vtlbdata.fastmem_base, vtlbdata.fastmem_base + (FASTMEM_AREA_SIZE - 1));
-	}
-
-	if (!HostSys::InstallPageFaultHandler(&vtlb_private::PageFaultHandler))
-	{
-		Host::ReportErrorAsync("Error", "Failed to install page fault handler.");
+		Host::ReportErrorAsync("Failed to install page fault handler.", error.GetDescription());
 		return false;
 	}
 
 	return true;
 }
 
-static constexpr size_t PPMAP_SIZE = sizeof(*vtlbdata.ppmap) * VTLB_VMAP_ITEMS;
-
 // The LUT is only used for 1 game so we allocate it only when the gamefix is enabled (save 4MB)
 // However automatic gamefix is done after the standard init so a new init function was done.
 void vtlb_Alloc_Ppmap()
 {
+	static constexpr size_t PPMAP_SIZE = sizeof(*vtlbdata.ppmap) * VTLB_VMAP_ITEMS;
+	static_assert(HostMemoryMap::VTLBAddressMapSize == PPMAP_SIZE);
+
 	if (vtlbdata.ppmap)
 		return;
 
-	static u32* ppmap = nullptr;
-
-	if (!ppmap)
-		ppmap = (u32*)GetVmMemory().BumpAllocator().Alloc(PPMAP_SIZE);
-
-	HostSys::MemProtect(ppmap, PPMAP_SIZE, PageProtectionMode().Read().Write());
-	vtlbdata.ppmap = ppmap;
+	vtlbdata.ppmap = reinterpret_cast<u32*>(SysMemory::GetVTLBAddressMap());
 
 	// By default a 1:1 virtual to physical mapping
 	for (u32 i = 0; i < VTLB_VMAP_ITEMS; i++)
@@ -1371,18 +1431,8 @@ void vtlb_Alloc_Ppmap()
 
 void vtlb_Core_Free()
 {
-	HostSys::RemovePageFaultHandler(&vtlb_private::PageFaultHandler);
-
-	if (vtlbdata.vmap)
-	{
-		HostSys::MemProtect(vtlbdata.vmap, VMAP_SIZE, PageProtectionMode());
-		vtlbdata.vmap = nullptr;
-	}
-	if (vtlbdata.ppmap)
-	{
-		HostSys::MemProtect(vtlbdata.ppmap, PPMAP_SIZE, PageProtectionMode());
-		vtlbdata.ppmap = nullptr;
-	}
+	vtlbdata.vmap = nullptr;
+	vtlbdata.ppmap = nullptr;
 
 	vtlb_RemoveFastmemMappings();
 	vtlb_ClearLoadStoreInfo();
@@ -1392,36 +1442,6 @@ void vtlb_Core_Free()
 	decltype(s_fastmem_virtual_mapping)().swap(s_fastmem_virtual_mapping);
 	s_fastmem_area.reset();
 }
-
-// --------------------------------------------------------------------------------------
-//  VtlbMemoryReserve  (implementations)
-// --------------------------------------------------------------------------------------
-VtlbMemoryReserve::VtlbMemoryReserve(std::string name)
-	: VirtualMemoryReserve(std::move(name))
-{
-}
-
-void VtlbMemoryReserve::Assign(VirtualMemoryManagerPtr allocator, size_t offset, size_t size)
-{
-	// Anything passed to the memory allocator must be page aligned.
-	size = Common::PageAlign(size);
-
-	// Since the memory has already been allocated as part of the main memory map, this should never fail.
-	u8* base = allocator->Alloc(offset, size);
-	if (!base)
-	{
-		Console.WriteLn("(VtlbMemoryReserve) Failed to allocate %zu bytes for %s at offset %zu", size, m_name.c_str(), offset);
-		pxFailRel("VtlbMemoryReserve allocation failed.");
-	}
-
-	VirtualMemoryReserve::Assign(std::move(allocator), base, size);
-}
-
-void VtlbMemoryReserve::Reset()
-{
-	std::memset(GetPtr(), 0, GetSize());
-}
-
 
 // ===========================================================================================
 //  Memory Protection and Block Checking, vtlb Style!
@@ -1461,7 +1481,7 @@ struct vtlb_PageProtectionInfo
 	vtlb_ProtectionMode Mode;
 };
 
-alignas(16) static vtlb_PageProtectionInfo m_PageProtectInfo[Ps2MemSize::MainRam >> __pageshift];
+alignas(16) static vtlb_PageProtectionInfo m_PageProtectInfo[Ps2MemSize::TotalRam >> __pageshift];
 
 
 // returns:
@@ -1477,7 +1497,7 @@ vtlb_ProtectionMode mmap_GetRamPageInfo(u32 paddr)
 	uptr ptr = (uptr)PSM(paddr);
 	uptr rampage = ptr - (uptr)eeMem->Main;
 
-	if (!ptr || rampage >= Ps2MemSize::MainRam)
+	if (!ptr || rampage >= Ps2MemSize::ExposedRam)
 		return ProtMode_NotRequired; //not in ram, no tracking done ...
 
 	rampage >>= __pageshift;
@@ -1533,12 +1553,12 @@ static __fi void mmap_ClearCpuBlock(uint offset)
 	Cpu->Clear(m_PageProtectInfo[rampage].ReverseRamMap, __pagesize);
 }
 
-bool vtlb_private::PageFaultHandler(const PageFaultInfo& info)
+PageFaultHandler::HandlerResult PageFaultHandler::HandlePageFault(void* exception_pc, void* fault_address, bool is_write)
 {
 	pxAssert(eeMem);
 
 	u32 vaddr;
-	if (CHECK_FASTMEM && vtlb_GetGuestAddress(info.addr, &vaddr))
+	if (CHECK_FASTMEM && vtlb_GetGuestAddress(reinterpret_cast<uptr>(fault_address), &vaddr))
 	{
 		// this was inside the fastmem area. check if it's a code page
 		// fprintf(stderr, "Fault on fastmem %p vaddr %08X\n", info.addr, vaddr);
@@ -1549,23 +1569,26 @@ bool vtlb_private::PageFaultHandler(const PageFaultInfo& info)
 		{
 			// fprintf(stderr, "Not backpatching code write at %08X\n", vaddr);
 			mmap_ClearCpuBlock(offset);
-			return true;
+			return HandlerResult::ContinueExecution;
 		}
 		else
 		{
 			// fprintf(stderr, "Trying backpatching vaddr %08X\n", vaddr);
-			return vtlb_BackpatchLoadStore(info.pc, info.addr);
+			return vtlb_BackpatchLoadStore(reinterpret_cast<uptr>(exception_pc),
+					   reinterpret_cast<uptr>(fault_address)) ?
+					   HandlerResult::ContinueExecution :
+					   HandlerResult::ExecuteNextHandler;
 		}
 	}
 	else
 	{
 		// get bad virtual address
-		uptr offset = info.addr - (uptr)eeMem->Main;
-		if (offset >= Ps2MemSize::MainRam)
-			return false;
+		uptr offset = reinterpret_cast<uptr>(fault_address) - reinterpret_cast<uptr>(eeMem->Main);
+		if (offset >= Ps2MemSize::ExposedRam)
+			return HandlerResult::ExecuteNextHandler;
 
 		mmap_ClearCpuBlock(offset);
-		return true;
+		return HandlerResult::ContinueExecution;
 	}
 }
 
@@ -1578,6 +1601,6 @@ void mmap_ResetBlockTracking()
 	//DbgCon.WriteLn( "vtlb/mmap: Block Tracking reset..." );
 	std::memset(m_PageProtectInfo, 0, sizeof(m_PageProtectInfo));
 	if (eeMem)
-		HostSys::MemProtect(eeMem->Main, Ps2MemSize::MainRam, PageAccess_ReadWrite());
-	vtlb_UpdateFastmemProtection(0, Ps2MemSize::MainRam, PageAccess_ReadWrite());
+		HostSys::MemProtect(eeMem->Main, Ps2MemSize::ExposedRam, PageAccess_ReadWrite());
+	vtlb_UpdateFastmemProtection(0, Ps2MemSize::ExposedRam, PageAccess_ReadWrite());
 }

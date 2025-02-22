@@ -1,17 +1,5 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2023  PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
@@ -37,17 +25,33 @@ public:
 	};
 
 private:
-	u32 buttons;
-	u8 whammy;
+	u32 buttons = 0xffffffffu;
+	u8 whammy = Pad::ANALOG_NEUTRAL_POSITION;
 	// Technically guitars do not have an analog light, but they still use the same ModeSwitch command
 	// as a DS2, and are told to "turn on their light".
 	bool analogLight = false;
 	// Guitars are also instructed to "lock" their "analog light", despite not having one.
 	bool analogLocked = false;
 	bool commandStage = false;
-	float whammyAxisScale; // Guitars only have 1 axis on the whammy bar.
-	float whammyDeadzone;
-	float buttonDeadzone; // Button deadzone is still a good idea, in case a host analog stick is bound to a guitar button
+	float whammyAxisScale = 1.0f; // Guitars only have 1 axis on the whammy bar.
+	float whammyDeadzone = 0.0f;
+	float buttonDeadzone = 0.0f; // Button deadzone is still a good idea, in case a host analog stick is bound to a guitar button
+
+	// Since we reordered the buttons for better UI, we need to remap them here.
+	static constexpr std::array<u8, Inputs::LENGTH> bitmaskMapping = {{
+		12, // STRUM_UP
+		14, // STRUM_DOWN
+		8, // SELECT
+		11, // START
+		1, // GREEN
+		5, // RED
+		4, // YELLOW
+		6, // BLUE
+		7, // ORANGE
+		0 // TILT
+	}};
+
+	void ConfigLog();
 
 	u8 Mystery(u8 commandByte);
 	u8 ButtonQuery(u8 commandByte);
@@ -61,16 +65,15 @@ private:
 	u8 VibrationMap(u8 commandByte);
 
 public:
-	PadGuitar(u8 unifiedSlot);
+	PadGuitar(u8 unifiedSlot, size_t ejectTicks);
 	~PadGuitar() override;
 
-	void Init() override;
 	Pad::ControllerType GetType() const override;
 	const Pad::ControllerInfo& GetInfo() const override;
 	void Set(u32 index, float value) override;
 	void SetRawAnalogs(const std::tuple<u8, u8> left, const std::tuple<u8, u8> right) override;
+	void SetRawPressureButton(u32 index, const std::tuple<bool, u8> value) override;
 	void SetAxisScale(float deadzone, float scale) override;
-	void SetTriggerScale(float deadzone, float scale) override;
 	float GetVibrationScale(u32 motor) const override;
 	void SetVibrationScale(u32 motor, float scale) override;
 	float GetPressureModifier() const override;
@@ -78,6 +81,7 @@ public:
 	void SetButtonDeadzone(float deadzone) override;
 	void SetAnalogInvertL(bool x, bool y) override;
 	void SetAnalogInvertR(bool x, bool y) override;
+	float GetEffectiveInput(u32 index) const override;
 	u8 GetRawInput(u32 index) const override;
 	std::tuple<u8, u8> GetRawLeftAnalog() const override;
 	std::tuple<u8, u8> GetRawRightAnalog() const override;

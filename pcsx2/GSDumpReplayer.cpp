@@ -1,19 +1,5 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2023  PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
-
-#include "PrecompiledHeader.h"
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #include "GS.h"
 #include "GS/GSLzma.h"
@@ -30,9 +16,11 @@
 
 #include "imgui.h"
 
-#include "fmt/core.h"
+#include "fmt/format.h"
 
+#include "common/Error.h"
 #include "common/FileSystem.h"
+#include "common/Path.h"
 #include "common/StringUtil.h"
 #include "common/Threading.h"
 #include "common/Timer.h"
@@ -101,10 +89,12 @@ bool GSDumpReplayer::Initialize(const char* filename)
 	Common::Timer timer;
 	Console.WriteLn("(GSDumpReplayer) Reading file '%s'...", filename);
 
-	s_dump_file = GSDumpFile::OpenGSDump(filename);
-	if (!s_dump_file || !s_dump_file->ReadFile())
+	Error error;
+	s_dump_file = GSDumpFile::OpenGSDump(filename, &error);
+	if (!s_dump_file || !s_dump_file->ReadFile(&error))
 	{
-		Host::ReportFormattedErrorAsync("GSDumpReplayer", "Failed to open or read '%s'.", filename);
+		Host::ReportErrorAsync("GSDumpReplayer", fmt::format("Failed to open or read '{}': {}",
+													 Path::GetFileName(filename), error.GetDescription()));
 		s_dump_file.reset();
 		return false;
 	}
@@ -133,10 +123,12 @@ bool GSDumpReplayer::ChangeDump(const char* filename)
 		return false;
 	}
 
+	Error error;
 	std::unique_ptr<GSDumpFile> new_dump(GSDumpFile::OpenGSDump(filename));
-	if (!new_dump || !new_dump->ReadFile())
+	if (!new_dump || !new_dump->ReadFile(&error))
 	{
-		Host::ReportFormattedErrorAsync("GSDumpReplayer", "Failed to open or read '%s'.", filename);
+		Host::ReportErrorAsync("GSDumpReplayer", fmt::format("Failed to open or read '{}': {}",
+													 Path::GetFileName(filename), error.GetDescription()));
 		return false;
 	}
 
@@ -237,7 +229,7 @@ static void GSDumpReplayerSendPacketToMTGS(GIF_PATH path, const u8* data, u32 le
 static void GSDumpReplayerUpdateFrameLimit()
 {
 	constexpr u32 default_frame_limit = 60;
-	const u32 frame_limit = static_cast<u32>(default_frame_limit * EmuConfig.GS.LimitScalar);
+	const u32 frame_limit = static_cast<u32>(default_frame_limit * VMManager::GetTargetSpeed());
 
 	if (frame_limit > 0)
 		s_frame_ticks = (GetTickFrequency() + (frame_limit / 2)) / frame_limit;
@@ -322,6 +314,7 @@ void GSDumpReplayerCpuStep()
 			VMManager::Internal::VSyncOnCPUThread();
 			if (VMManager::Internal::IsExecutionInterrupted())
 				GSDumpReplayerExitExecution();
+			Host::PumpMessagesOnCPUThread();
 		}
 		break;
 

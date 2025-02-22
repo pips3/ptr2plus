@@ -1,28 +1,15 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2023 PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
-#include "PrecompiledHeader.h"
-
+#include "GS/GSGL.h"
+#include "GS/GSPerfMon.h"
 #include "GS/Renderers/Vulkan/GSDeviceVK.h"
 #include "GS/Renderers/Vulkan/GSTextureVK.h"
 #include "GS/Renderers/Vulkan/VKBuilders.h"
-#include "GS/GSPerfMon.h"
-#include "GS/GSGL.h"
 
-#include "common/BitUtils.h"
 #include "common/Assertions.h"
+#include "common/Console.h"
+#include "common/BitUtils.h"
 
 static constexpr const VkComponentMapping s_identity_swizzle{VK_COMPONENT_SWIZZLE_IDENTITY,
 	VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
@@ -52,7 +39,8 @@ static VkImageLayout GetVkImageLayout(GSTextureVK::Layout layout)
 
 static VkAccessFlagBits GetFeedbackLoopInputAccessBits()
 {
-	return GSDeviceVK::GetInstance()->UseFeedbackLoopLayout() ? VK_ACCESS_SHADER_READ_BIT : VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
+	return GSDeviceVK::GetInstance()->UseFeedbackLoopLayout() ? VK_ACCESS_SHADER_READ_BIT :
+																VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
 }
 
 GSTextureVK::GSTextureVK(Type type, Format format, int width, int height, int levels, VkImage image,
@@ -111,10 +99,11 @@ std::unique_ptr<GSTextureVK> GSTextureVK::Create(Type type, Format format, int w
 		case Type::RenderTarget:
 		{
 			pxAssert(levels == 1);
-			ici.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-						VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-						(GSDeviceVK::GetInstance()->UseFeedbackLoopLayout() ? VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT :
-																	 VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT);
+			ici.usage =
+				VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+				VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+				(GSDeviceVK::GetInstance()->UseFeedbackLoopLayout() ? VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT :
+																	  VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT);
 		}
 		break;
 
@@ -124,7 +113,8 @@ std::unique_ptr<GSTextureVK> GSTextureVK::Create(Type type, Format format, int w
 			ici.usage =
 				VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
 				VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-				(GSDeviceVK::GetInstance()->UseFeedbackLoopLayout() ? VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT : 0);
+				(GSDeviceVK::GetInstance()->UseFeedbackLoopLayout() ? VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT :
+																	  0);
 			vci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 		}
 		break;
@@ -173,28 +163,6 @@ std::unique_ptr<GSTextureVK> GSTextureVK::Create(Type type, Format format, int w
 		LOG_VULKAN_ERROR(res, "vkCreateImageView failed: ");
 		vmaDestroyImage(GSDeviceVK::GetInstance()->GetAllocator(), image, allocation);
 		return {};
-	}
-
-	switch (type)
-	{
-		case Type::Texture:
-			Vulkan::SetObjectName(GSDeviceVK::GetInstance()->GetDevice(), image, "%dx%d texture", width, height);
-			break;
-
-		case Type::RenderTarget:
-			Vulkan::SetObjectName(GSDeviceVK::GetInstance()->GetDevice(), image, "%dx%d render target", width, height);
-			break;
-
-		case Type::DepthStencil:
-			Vulkan::SetObjectName(GSDeviceVK::GetInstance()->GetDevice(), image, "%dx%d depth stencil", width, height);
-			break;
-
-		case Type::RWTexture:
-			Vulkan::SetObjectName(GSDeviceVK::GetInstance()->GetDevice(), image, "%dx%d RW texture", width, height);
-			break;
-
-		default:
-			break;
 	}
 
 	return std::unique_ptr<GSTextureVK>(
@@ -339,7 +307,9 @@ void GSTextureVK::UpdateFromBuffer(VkCommandBuffer cmdbuf, int level, u32 x, u32
 	u32 buffer_height, u32 row_length, VkBuffer buffer, u32 buffer_offset)
 {
 	const Layout old_layout = m_layout;
-	if (old_layout != Layout::TransferDst)
+	if (old_layout == Layout::Undefined)
+		TransitionToLayout(cmdbuf, Layout::TransferDst);
+	else if (old_layout != Layout::TransferDst)
 		TransitionSubresourcesToLayout(cmdbuf, level, 1, old_layout, Layout::TransferDst);
 
 	const VkBufferImageCopy bic = {static_cast<VkDeviceSize>(buffer_offset), row_length, buffer_height,
@@ -348,7 +318,7 @@ void GSTextureVK::UpdateFromBuffer(VkCommandBuffer cmdbuf, int level, u32 x, u32
 
 	vkCmdCopyBufferToImage(cmdbuf, buffer, m_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bic);
 
-	if (old_layout != Layout::TransferDst)
+	if (old_layout != Layout::TransferDst && old_layout != Layout::Undefined)
 		TransitionSubresourcesToLayout(cmdbuf, level, 1, Layout::TransferDst, old_layout);
 }
 
@@ -430,8 +400,8 @@ bool GSTextureVK::Map(GSMap& m, const GSVector4i* r, int layer)
 	m_map_area = r ? *r : GetRect();
 	m_map_level = layer;
 
-	m.pitch =
-		Common::AlignUpPow2(CalcUploadPitch(m_map_area.width()), GSDeviceVK::GetInstance()->GetBufferCopyRowPitchAlignment());
+	m.pitch = Common::AlignUpPow2(
+		CalcUploadPitch(m_map_area.width()), GSDeviceVK::GetInstance()->GetBufferCopyRowPitchAlignment());
 
 	// see note in Update() for the reason why.
 	const u32 required_size = CalcUploadSize(m_map_area.height(), m.pitch);
@@ -459,7 +429,8 @@ void GSTextureVK::Unmap()
 
 	const u32 width = m_map_area.width();
 	const u32 height = m_map_area.height();
-	const u32 pitch = Common::AlignUpPow2(CalcUploadPitch(width), GSDeviceVK::GetInstance()->GetBufferCopyRowPitchAlignment());
+	const u32 pitch =
+		Common::AlignUpPow2(CalcUploadPitch(width), GSDeviceVK::GetInstance()->GetBufferCopyRowPitchAlignment());
 	const u32 required_size = CalcUploadSize(height, pitch);
 	VKStreamBuffer& buffer = GSDeviceVK::GetInstance()->GetTextureUploadBuffer();
 	const u32 buffer_offset = buffer.GetCurrentOffset();
@@ -495,6 +466,9 @@ void GSTextureVK::GenerateMipmap()
 {
 	const VkCommandBuffer cmdbuf = GetCommandBufferForUpdate();
 
+	if (m_layout == Layout::Undefined)
+		TransitionToLayout(cmdbuf, Layout::TransferSrc);
+
 	for (int dst_level = 1; dst_level < m_mipmap_levels; dst_level++)
 	{
 		const int src_level = dst_level - 1;
@@ -521,20 +495,18 @@ void GSTextureVK::GenerateMipmap()
 	}
 }
 
-void GSTextureVK::Swap(GSTexture* tex)
+#ifdef PCSX2_DEVBUILD
+
+void GSTextureVK::SetDebugName(std::string_view name)
 {
-	GSTexture::Swap(tex);
-	std::swap(m_image, static_cast<GSTextureVK*>(tex)->m_image);
-	std::swap(m_allocation, static_cast<GSTextureVK*>(tex)->m_allocation);
-	std::swap(m_view, static_cast<GSTextureVK*>(tex)->m_view);
-	std::swap(m_vk_format, static_cast<GSTextureVK*>(tex)->m_vk_format);
-	std::swap(m_layout, static_cast<GSTextureVK*>(tex)->m_layout);
-	std::swap(m_use_fence_counter, static_cast<GSTextureVK*>(tex)->m_use_fence_counter);
-	std::swap(m_clear_value, static_cast<GSTextureVK*>(tex)->m_clear_value);
-	std::swap(m_map_area, static_cast<GSTextureVK*>(tex)->m_map_area);
-	std::swap(m_map_level, static_cast<GSTextureVK*>(tex)->m_map_level);
-	std::swap(m_framebuffers, static_cast<GSTextureVK*>(tex)->m_framebuffers);
+	if (name.empty())
+		return;
+
+	Vulkan::SetObjectName(GSDeviceVK::GetInstance()->GetDevice(), m_image, "%.*s", static_cast<int>(name.size()), name.data());
+	Vulkan::SetObjectName(GSDeviceVK::GetInstance()->GetDevice(), m_view, "%.*s", static_cast<int>(name.size()), name.data());
 }
+
+#endif
 
 void GSTextureVK::CommitClear()
 {
@@ -826,7 +798,8 @@ GSDownloadTextureVK::~GSDownloadTextureVK()
 
 std::unique_ptr<GSDownloadTextureVK> GSDownloadTextureVK::Create(u32 width, u32 height, GSTexture::Format format)
 {
-	const u32 buffer_size = GetBufferSize(width, height, format, GSDeviceVK::GetInstance()->GetBufferCopyRowPitchAlignment());
+	const u32 buffer_size =
+		GetBufferSize(width, height, format, GSDeviceVK::GetInstance()->GetBufferCopyRowPitchAlignment());
 
 	const VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, nullptr, 0u, buffer_size,
 		VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_SHARING_MODE_EXCLUSIVE, 0u, nullptr};
@@ -880,7 +853,9 @@ void GSDownloadTextureVK::CopyFromTexture(
 	GL_INS("GSDownloadTextureVK::CopyFromTexture: {%d,%d} %ux%u", src.left, src.top, src.width(), src.height());
 
 	GSTextureVK::Layout old_layout = vkTex->GetLayout();
-	if (old_layout != GSTextureVK::Layout::TransferSrc)
+	if (old_layout == GSTextureVK::Layout::Undefined)
+		vkTex->TransitionToLayout(cmdbuf, GSTextureVK::Layout::TransferSrc);
+	else if (old_layout != GSTextureVK::Layout::TransferSrc)
 		vkTex->TransitionSubresourcesToLayout(cmdbuf, src_level, 1, old_layout, GSTextureVK::Layout::TransferSrc);
 
 	VkBufferImageCopy image_copy = {};
@@ -910,7 +885,7 @@ void GSDownloadTextureVK::CopyFromTexture(
 	vkCmdPipelineBarrier(
 		cmdbuf, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1, &buffer_info, 0, nullptr);
 
-	if (old_layout != GSTextureVK::Layout::TransferSrc)
+	if (old_layout != GSTextureVK::Layout::TransferSrc && old_layout != GSTextureVK::Layout::Undefined)
 		vkTex->TransitionSubresourcesToLayout(cmdbuf, src_level, 1, GSTextureVK::Layout::TransferSrc, old_layout);
 
 	m_copy_fence_counter = GSDeviceVK::GetInstance()->GetCurrentFenceCounter();
@@ -949,7 +924,26 @@ void GSDownloadTextureVK::Flush()
 
 	// Need to execute command buffer.
 	if (GSDeviceVK::GetInstance()->GetCurrentFenceCounter() == m_copy_fence_counter)
+	{
+		if (GSDeviceVK::GetInstance()->InRenderPass())
+			GSDeviceVK::GetInstance()->EndRenderPass();
+
 		GSDeviceVK::GetInstance()->ExecuteCommandBufferForReadback();
+	}
 	else
+	{
 		GSDeviceVK::GetInstance()->WaitForFenceCounter(m_copy_fence_counter);
+	}
 }
+
+#ifdef PCSX2_DEVBUILD
+
+void GSDownloadTextureVK::SetDebugName(std::string_view name)
+{
+	if (name.empty())
+		return;
+
+	Vulkan::SetObjectName(GSDeviceVK::GetInstance()->GetDevice(), m_buffer, "%.*s", static_cast<int>(name.size()), name.data());
+}
+
+#endif

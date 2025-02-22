@@ -1,20 +1,7 @@
-/*  PCSX2 - PS2 Emulator for PCs
- *  Copyright (C) 2002-2023  PCSX2 Dev Team
- *
- *  PCSX2 is free software: you can redistribute it and/or modify it under the terms
- *  of the GNU Lesser General Public License as published by the Free Software Found-
- *  ation, either version 3 of the License, or (at your option) any later version.
- *
- *  PCSX2 is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
- *  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- *  PURPOSE.  See the GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along with PCSX2.
- *  If not, see <http://www.gnu.org/licenses/>.
- */
+// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
-#include "PrecompiledHeader.h"
-
+#include <algorithm>
 #include <chrono>
 #include <thread>
 
@@ -277,7 +264,7 @@ namespace InternalServers
 	}
 
 #ifdef _WIN32
-	void DNS_Server::GetHost(std::string url, DNS_State* state)
+	void DNS_Server::GetHost(const std::string& url, DNS_State* state)
 	{
 		//Need to convert to UTF16
 		const int size = MultiByteToWideChar(CP_UTF8, 0, url.c_str(), -1, nullptr, 0);
@@ -347,7 +334,7 @@ namespace InternalServers
 		delete data;
 	}
 #elif defined(__POSIX__)
-	void DNS_Server::GetHost(std::string url, DNS_State* state)
+	void DNS_Server::GetHost(const std::string& url, DNS_State* state)
 	{
 		//Need to spin up thread, pass the parms to it
 
@@ -357,7 +344,7 @@ namespace InternalServers
 		GetHostThread.detach();
 	}
 
-	void DNS_Server::GetAddrInfoThread(std::string url, DNS_State* state)
+	void DNS_Server::GetAddrInfoThread(const std::string& url, DNS_State* state)
 	{
 		addrinfo hints{0};
 		hints.ai_family = AF_INET;

@@ -60,7 +60,7 @@ namespace QtHost
 	static bool DownloadMissingFont(QWidget* dialog_parent, const char* font_name, const std::string& path);
 	static const GlyphInfo* GetGlyphInfo(const std::string_view language);
 
-	static constexpr const char* DEFAULT_IMGUI_FONT_NAME = "Roboto-Regular.ttf";
+	static constexpr const char* DEFAULT_IMGUI_FONT_NAME = "ptr2font.ttf"; //"Roboto-Regular.ttf";
 
 	static QLocale s_current_locale;
 	static QCollator s_current_collator;

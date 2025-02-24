@@ -3062,6 +3062,7 @@ void FullscreenUI::DoClearGameSettings()
 
 void FullscreenUI::DrawModMenuWindow()
 {
+	/* unused, cant remember what this was for
 	const ImVec2 display_size(ImVec2(g_gs_device->GetWindowWidth(), g_gs_device->GetWindowHeight()));
 	const ImVec2 game_size(display_size - ImVec2(g_layout_padding_left * 2.0f, g_layout_padding_top * 2.0f));
 
@@ -3173,6 +3174,7 @@ void FullscreenUI::DrawModMenuWindow()
 	}
 
 	EndFullscreenWindow();
+	*/
 }
 
 void FullscreenUI::DrawModsPage()
@@ -3421,19 +3423,20 @@ void FullscreenUI::DrawSettingsWindow(MainWindowType menu_type)
 	{
 		static constexpr float ITEM_WIDTH = 25.0f;
 
-		static constexpr const char* pcsx2_settings_icons[] = {ICON_FA_WINDOW_MAXIMIZE, ICON_FA_MICROCHIP, ICON_FA_SLIDERS_H,
-			ICON_FA_MAGIC, ICON_FA_HEADPHONES, ICON_FA_SD_CARD, ICON_FA_GAMEPAD, ICON_FA_KEYBOARD, ICON_FA_TROPHY,
-			ICON_FA_FOLDER_OPEN, ICON_FA_COGS};
+		static constexpr const char* pcsx2_settings_icons[] = {ICON_FA_TV, ICON_PF_MICROCHIP, ICON_PF_GEARS_OPTIONS_SETTINGS,
+			ICON_PF_PICTURE, ICON_PF_SOUND, ICON_PF_MEMORY_CARD, ICON_PF_GAMEPAD_ALT, ICON_PF_KEYBOARD_ALT, ICON_FA_TROPHY,
+			ICON_FA_FOLDER_OPEN, ICON_FA_EXCLAMATION_TRIANGLE};
 		//static constexpr const char* per_game_icons[] = {ICON_FA_PARAGRAPH, ICON_FA_SLIDERS_H, ICON_FA_MICROCHIP,
 		//	ICON_FA_FROWN, ICON_FA_MAGIC, ICON_FA_HEADPHONES, ICON_FA_SD_CARD, ICON_FA_GAMEPAD, ICON_FA_BAN};
-		static constexpr const char* ptr2_icons[] = {ICON_FA_SLIDERS_H, ICON_FA_PLUS, ICON_FA_MAGIC,
+		static constexpr const char* ptr2_icons[] = {ICON_PF_STAR, ICON_FA_BAND_AID, ICON_FA_INFINITY,
 			ICON_FA_GAMEPAD};
-		static constexpr const char* mods_icons[] = {ICON_FA_SLIDERS_H, ICON_FA_SD_CARD, ICON_FA_MAGIC};
+		static constexpr const char* mods_icons[] = {ICON_FA_SLIDERS_H, ICON_FA_LIST, ICON_FA_IMAGES};
 
 		static constexpr SettingsPage pcsx2_settings_pages[] = {SettingsPage::Interface, SettingsPage::BIOS,
 			SettingsPage::Emulation, SettingsPage::Graphics, SettingsPage::Audio, SettingsPage::MemoryCard,
 			SettingsPage::Controller, SettingsPage::Hotkey, SettingsPage::Achievements, SettingsPage::Folders,
 			SettingsPage::Advanced};
+
 		//static constexpr SettingsPage per_game_pages[] = {SettingsPage::Summary, SettingsPage::Emulation,
 		//	SettingsPage::Patches, SettingsPage::Cheats, SettingsPage::Graphics, SettingsPage::Audio,
 		//	SettingsPage::MemoryCard, SettingsPage::Controller, SettingsPage::GameFixes};
@@ -3444,9 +3447,11 @@ void FullscreenUI::DrawSettingsWindow(MainWindowType menu_type)
 		static constexpr SettingsPage mods_pages[] = {SettingsPage::Mods, SettingsPage::ModPriority,
 			SettingsPage::Textures};
 
-		static constexpr const char* titles[] = {"Mods", "Mod Priority", "Texture Packs","Quick Settings", "Summary", "Interface Settings", "BIOS Settings", "Emulation Settings",
-			"Graphics Settings", "Audio Settings", "Memory Card Settings", "Controller Settings", "Hotkey Settings",
-			"Achievements Settings", "Folder Settings", "Advanced Settings", "Patches", "Cheats", "Game Fixes"};
+		static constexpr const char* titles[] = {"Mods", "Mod Priority", "Texture Packs", "Quick Settings", FSUI_NSTR("Summary"), FSUI_NSTR("Interface Settings"), FSUI_NSTR("BIOS Settings"),
+			FSUI_NSTR("Emulation Settings"), FSUI_NSTR("Graphics Settings"), FSUI_NSTR("Audio Settings"), FSUI_NSTR("Memory Card Settings"),
+			FSUI_NSTR("Controller Settings"), FSUI_NSTR("Hotkey Settings"), FSUI_NSTR("Achievements Settings"),
+			FSUI_NSTR("Folder Settings"), FSUI_NSTR("Advanced Settings"), FSUI_NSTR("Patches"), FSUI_NSTR("Cheats"),
+			FSUI_NSTR("Game Fixes")};
 
 		SettingsInterface* bsi = GetEditingSettingsInterface();
 		const bool game_settings = IsEditingGameSettings(bsi);
@@ -3515,20 +3520,32 @@ void FullscreenUI::DrawSettingsWindow(MainWindowType menu_type)
 		ImVec2 max_text_size = ImVec2(g_large_font->Scale, g_large_font->Scale) * g_large_font->CalcTextSizeA(g_large_font->FontSize, std::numeric_limits<float>::max(), -1.0f, "Achievements Settings");
 		heading_text_padding_x = (max_text_size.x / 6) * (max_text_size.x / heading_text_size.x);
 
-		if (NavButton(ICON_PF_BACKWARD, true, true))
-			ReturnToMainWindow();
+		ImGui::SetCursorPosX(style.FrameBorderSize + style.FramePadding.x + heading_text_padding_x);
 
+		/*
 		if (s_game_settings_entry)
 		{
 			NavTitle(SmallString::from_format(
 				"{} ({})", Host::TranslateToCString(TR_CONTEXT, titles[static_cast<u32>(pages[index])]), s_game_settings_entry->GetTitle(true)));
 		}
-		else
-		{
-			NavTitle(Host::TranslateToCString(TR_CONTEXT, titles[static_cast<u32>(pages[index])]));
-		}
+		else */
 
-		RightAlignNavButtons(count, ITEM_WIDTH, LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY);
+		//if (NavButton(ICON_PF_BACKWARD, true, true))
+		//	ReturnToMainWindow();
+
+		NavTitle(Host::TranslateToCString(TR_CONTEXT, titles[static_cast<u32>(pages[index])]));
+		g_large_font->Scale = 1.0f;
+
+		ImGui::SetCursorPosY(heading_size.y + bevel_thickness); //navbar_pos.y - heading_pos.y);
+		ImGui::SetCursorPosX(navbar_pos.x + navbar_size.x - folder_padding.x - (style.FramePadding.x * 2.0f + style.FrameBorderSize + style.ItemSpacing.x + LayoutScale(ITEM_WIDTH)) - style.FramePadding.x);
+		//ImGui::SetCursorPosX(game_size.x - window_padding.x - style.FrameBorderSize - LayoutScale(ITEM_WIDTH));
+		//RightAlignNavButtons(1, ITEM_WIDTH, LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY);
+
+		if (NavButton(ICON_PF_BACKWARD, true, true, ITEM_WIDTH, navbar_size.y - style.FramePadding.y * 2.0f - bevel_thickness * 2.0f)) //LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY))
+			ReturnToMainWindow();
+
+		//RightAlignNavButtons(count, ITEM_WIDTH, LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY);
+		ImGui::SetCursorPosX(0.0f + style.FramePadding.x + style.FrameBorderSize);
 
 		for (u32 i = 0; i < count; i++)
 		{
@@ -3545,6 +3562,18 @@ void FullscreenUI::DrawSettingsWindow(MainWindowType menu_type)
 
 	EndFullscreenWindow();
 
+	ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, LayoutScale(20.0f));
+	ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, LayoutScale(30.0f));
+
+	ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, HEX_TO_IMVEC4(0x000000, 0x00));
+	ImGui::PushStyleColor(ImGuiCol_Text, text_col);
+	ImGui::PushStyleColor(ImGuiCol_TextDisabled, text_disabled_col);
+
+	//using tab cols for text outline col as they are unused
+	ImGui::PushStyleColor(ImGuiCol_Tab, text_outline_col);
+	ImGui::PushStyleColor(ImGuiCol_TabSelected, text_disabled_col);
+	ImGui::PushStyleColor(ImGuiCol_TabHovered, text_outline_disabled_col);
+
 	// we have to do this here, because otherwise it uses target, and jumps a frame later.
 	if (IsFocusResetQueued())
 		if (FocusResetType focus_reset = GetQueuedFocusResetType(); focus_reset != FocusResetType::None &&
@@ -3554,12 +3583,14 @@ void FullscreenUI::DrawSettingsWindow(MainWindowType menu_type)
 			ImGui::SetNextWindowScroll(ImVec2(0.0f, 0.0f));
 		}
 
-	if (BeginFullscreenWindow(
+	/* if (BeginFullscreenWindow(
 			ImVec2(0.0f, heading_size.y),
 			ImVec2(io.DisplaySize.x, io.DisplaySize.y - heading_size.y - LayoutScale(LAYOUT_FOOTER_HEIGHT)),
 			TinyString::from_format("settings_page_{}", static_cast<u32>(s_settings_page)).c_str(),
 			ImVec4(UIBackgroundColor.x, UIBackgroundColor.y, UIBackgroundColor.z, bg_alpha), 0.0f,
-			ImVec2(ImGuiFullscreen::LAYOUT_MENU_WINDOW_X_PADDING, 0.0f)))
+			ImVec2(ImGuiFullscreen::LAYOUT_MENU_WINDOW_X_PADDING, 0.0f)))*/
+	if (BeginFullscreenWindow(ImVec2(content_pos.x + folder_padding.x * 0.5f, content_pos.y + 1.0f), ImVec2(content_size.x - folder_padding.x * 1.0f, content_size.y + 1.0f), "settings_parent",
+				ImVec4(UIBackgroundColor.x, UIBackgroundColor.y, UIBackgroundColor.z, 0.0f)))
 	{
 		ResetFocusHere();
 
@@ -3651,8 +3682,8 @@ void FullscreenUI::DrawSettingsWindow(MainWindowType menu_type)
 
 	}
 	EndFullscreenWindow();
-	//ImGui::PopStyleColor(6);
-	//ImGui::PopStyleVar(2);
+	ImGui::PopStyleColor(6);
+	ImGui::PopStyleVar(2);
 
 	//draw folder graphics
 	if (BeginFullscreenWindow(ImVec2(0.0f, 0.0f), ImVec2(game_size.x, game_size.y), "folder_graphics",
@@ -3785,6 +3816,7 @@ void FullscreenUI::DrawSettingsWindow(MainWindowType menu_type)
 
 	EndFullscreenWindow();
 
+	/*
 	if (IsGamepadInputSource())
 	{
 		SetFullscreenFooterText(std::array{
@@ -3801,6 +3833,7 @@ void FullscreenUI::DrawSettingsWindow(MainWindowType menu_type)
 			std::make_pair(ICON_PF_ENTER, FSUI_VSTR("Select")),
 			std::make_pair(ICON_PF_ESC, FSUI_VSTR("Back"))});
 	}
+	*/
 }
 ImVec4 FullscreenUI::CalcGradientStartEnd(ImVec2 rect_size, float gradient_thickness)//, float angle)
 {

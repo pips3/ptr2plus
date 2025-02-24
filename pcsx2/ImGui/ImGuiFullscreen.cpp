@@ -1405,49 +1405,34 @@ bool ImGuiFullscreen::FloatingButton(const char* text, float x, float y, float w
 
 	return pressed;
 }
+
 void ImGuiFullscreen::DrawSettingsTextOutline(ImRect title_bb, ImFont* title_font, const char* title, float outline_size, bool enabled, ImVec2 align)
 {
-	//float outline_size = 2.5f;
-	g_standard_font->Scale = title_font->FontSize / g_standard_font->FontSize;
+	//float outline_size = 2.5f
+	
+	//make text blurry - broken since the upstream merge
+	//g_medium_font->Scale = title_font->FontSize / g_medium_font->FontSize;
 
-	ImGui::PushFont(g_standard_font);
+	ImGui::PushFont(title_font);
 
 	if (enabled)
 		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_Tab));
 	else
 		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TabHovered));
 
-	for (float i = 0.5f; i < outline_size; i += 0.5f)
+	for (float i = 0.5f; i < outline_size + 1.0f; i += 0.5f)
 	{
-
-		//bottom right
-		ImGui::RenderTextClipped(title_bb.Min + ImVec2(LayoutScale(i), LayoutScale(i)), title_bb.Max + ImVec2(LayoutScale(i), LayoutScale(i)), title, nullptr, nullptr, align, &title_bb);
-		//bottom left
-		ImGui::RenderTextClipped(title_bb.Min + ImVec2(LayoutScale(-i), LayoutScale(i)), title_bb.Max + ImVec2(LayoutScale(-i), LayoutScale(i)), title, nullptr, nullptr, align, &title_bb);
-
-		//right
-		ImGui::RenderTextClipped(title_bb.Min + ImVec2(LayoutScale(i), LayoutScale(0)), title_bb.Max + ImVec2(LayoutScale(i), LayoutScale(0)), title, nullptr, nullptr, align, &title_bb);
-		//bottom
-		ImGui::RenderTextClipped(title_bb.Min + ImVec2(LayoutScale(0), LayoutScale(i)), title_bb.Max + ImVec2(LayoutScale(0), LayoutScale(i)), title, nullptr, nullptr, align, &title_bb);
-
-		//top left
-		ImGui::RenderTextClipped(title_bb.Min - ImVec2(LayoutScale(i), LayoutScale(i)), title_bb.Max - ImVec2(LayoutScale(i), LayoutScale(i)), title, nullptr, nullptr, align, &title_bb);
-		ImGui::RenderTextClipped(title_bb.Min - ImVec2(LayoutScale(1.25f * i), LayoutScale(1.25f * i)), title_bb.Max - ImVec2(LayoutScale(1.25f * i), LayoutScale(1.25 * i)), title, nullptr, nullptr, align, &title_bb);
-
-		//top right
-		ImGui::RenderTextClipped(title_bb.Min - ImVec2(LayoutScale(-i), LayoutScale(i)), title_bb.Max - ImVec2(LayoutScale(-i), LayoutScale(i)), title, nullptr, nullptr, align, &title_bb);
-		ImGui::RenderTextClipped(title_bb.Min - ImVec2(LayoutScale(-(1.25f * i)), LayoutScale(1.25f * i)), title_bb.Max - ImVec2(LayoutScale(-(1.25f * i)), LayoutScale(2 * i)), title, nullptr, nullptr, align, &title_bb);
-
-		//left
-		ImGui::RenderTextClipped(title_bb.Min - ImVec2(LayoutScale(-i), LayoutScale(0)), title_bb.Max - ImVec2(LayoutScale(-i), LayoutScale(0)), title, nullptr, nullptr, align, &title_bb);
-		//top
-		ImGui::RenderTextClipped(title_bb.Min - ImVec2(LayoutScale(-0), LayoutScale(i)), title_bb.Max - ImVec2(LayoutScale(-0), LayoutScale(i)), title, nullptr, nullptr, align, &title_bb);
-		ImGui::RenderTextClipped(title_bb.Min - ImVec2(LayoutScale(-0), LayoutScale(1.25f * i)), title_bb.Max - ImVec2(LayoutScale(-0), LayoutScale(1.25f * i)), title, nullptr, nullptr, align, &title_bb);
+		for (float degree = 0.0f; degree < 360.0f; degree += 10.0f)
+		{
+			ImGui::RenderTextClipped(
+				title_bb.Min + ImVec2(LayoutScale(i * cosf(degree)), LayoutScale(i * sinf(degree) - 0.5 * i)),
+				title_bb.Max + ImVec2(LayoutScale(i * cosf(degree)), LayoutScale(i * sinf(degree) - 0.5 * i)),
+				title, nullptr, nullptr, align, &title_bb);
+		}
 	}
 	ImGui::PopStyleColor();
 	ImGui::PopFont();
-
-	g_medium_font->Scale = 1.0f;
+	//g_medium_font->Scale = 1.0f;
 
 }
 bool ImGuiFullscreen::ToggleButton(

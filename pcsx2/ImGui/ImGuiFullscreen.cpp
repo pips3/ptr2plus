@@ -1416,7 +1416,7 @@ void ImGuiFullscreen::DrawSettingsTextOutline(ImRect title_bb, ImFont* title_fon
 	ImGui::PushFont(title_font);
 
 	if (enabled)
-		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_Tab));
+		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_Tab, 0.1f));
 	else
 		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TabHovered));
 

@@ -873,21 +873,21 @@ void ImGuiFullscreen::BeginMenuButtons(u32 num_items, float y_align, float x_pad
 	if (y_align != 0.0f)
 	{
 		const float total_size =
-			static_cast<float>(num_items) * LayoutScale(item_height + (y_padding * 2.0f)) + LayoutScale(y_padding * 2.0f) + LayoutScale(pauseLogo_height);
+			static_cast<float>(num_items) * LayoutScale(item_height + (y_padding * 2.0f)) + LayoutScale(y_padding * 2.0f); //+ LayoutScale(pauseLogo_height);
 
 		//upstream
 		//const float real_item_height = LayoutScale(item_height) + (LayoutScale(y_padding) * 2.0f);
 		//const float total_size = (static_cast<float>(num_items) * real_item_height) + (LayoutScale(y_padding) * 2.0f);
 
 		const float window_height = ImGui::GetWindowHeight();
-		if (window_height + LayoutScale(pauseLogo_height) > total_size)
+		if (window_height /* + LayoutScale(pauseLogo_height) */ > total_size)
 			if (y_centered)
 			{
-				ImGui::SetCursorPosY((window_height / 2 - total_size / 2) * y_align + LayoutScale(pauseLogo_height) / 2 );
+				ImGui::SetCursorPosY((window_height / 2 - total_size / 2) * y_align ); //+ LayoutScale(pauseLogo_height) / 2 );
 			}
 			else
 			{
-				ImGui::SetCursorPosY((window_height - total_size) * y_align + LayoutScale(pauseLogo_height) / 2 );
+				ImGui::SetCursorPosY((window_height - total_size) * y_align ); //+ LayoutScale(pauseLogo_height) / 2 );
 			}
 			
 	}
